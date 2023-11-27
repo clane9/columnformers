@@ -7,12 +7,12 @@
 Transformers are amazing models. Could they be useful models of the brain? At a fine scale, the "columns" of a transformer somewhat resemble cortical columns. Zooming out however, the large-scale architecture of the transformer is pretty different from the brain:
 
 - In a transformer, the columns are arranged in a sequence. In the brain, they are arranged on a 2D folded cortical sheet.
-- A transformer is "narrow" with a typical column count (i.e. sequence length) of ~10<sup>4</sup>. The brain is "wide" with ~10<sup>6</sup> columns.
+- A transformer is "narrow" with a typical column count (i.e. sequence length) of ~10<sup>3</sup>. The brain is "wide" with ~10<sup>6</sup> columns.
 - A transformer has dense all-to-all connectivity between columns. The brain has sparse connectivity with mostly local and some long-range connections.
 - Each column in a transformer layer shares weights. Weight sharing between columns in the brain is not possible.
 - A transformer consists of multiple independent layers (i.e. blocks) applied sequentially. The brain consists of a single layer of columns (the cortex) applied recurrently.
 
-Here I try to design a transformer-like architecture, the **Columnformer**, that closes some of these gaps.
+Here we try to design a transformer-like architecture, the **Columnformer**, that closes some of these gaps.
 
 ## Model architecture
 
@@ -39,7 +39,7 @@ The proposed model is highly flexible. Only the geometry of the column layer con
 
 ### Impact of weight sharing
 
-Both the transformer and the columnformer have a width (the number of columns) and a depth (the number of compute steps). One key difference is that the Transformer shares weights across width, whereas the columnformer shares weights across depth (through recurrence). What impact does this have on model performance?
+Both the transformer and the columnformer have a width (the number of columns) and a depth (the number of compute steps). One key difference is that the transformer shares weights across width, whereas the columnformer shares weights across depth (through recurrence). What impact does this have on model performance?
 
 - Because width >> depth, columnformers have many more parameters than transformers, therefore less inductive bias. Will columnformers even learn?
 - How hard is it to get the untied columns in a columnformer to "agree" on a latent feature space? Do we need some penalty term to promote feature consistency (e.g. [feature smoothness](https://arxiv.org/abs/2308.09431))?
@@ -52,6 +52,12 @@ Brain activity and connectivity patterns are both highly sparse. Likewise, it wi
 - Should we try to hand-design sparse connectivity patterns?
 - Can we learn sparse connectivity patterns? What about some kind of progressive model training, where we alternate between training, pruning connections, and scaling the model?
 - Will it be useful to promote sparsity over the column activations? Or could activation sparsity emerge spontaneously?
+
+## Roadmap
+
+- [x] Initial model implementation ([`model_v1.py`](columnformers/model_v1.py))
+- [ ] Masked-image-modeling training implementation
+- [ ] Initial training run of small model on [COCO](https://huggingface.co/datasets/detection-datasets/coco)
 
 ## Contributing
 
@@ -71,4 +77,8 @@ This is a personal side research project. All work will be done openly. If you'r
 
 - [Sparse Mixture-of-Experts](https://arxiv.org/abs/1701.06538)
 
-- [Geoff Hinton on The Robot Brains Podcast](https://www.therobotbrains.ai/geoff-hinton-transcript-part-one)
+- [Jeff Hawkins on 1000 brains theory](https://www.nature.com/articles/d41586-023-01531-x)
+
+- [Andrej Karpathy on transformers vs the brain](https://youtu.be/XfpMkf4rD6E?si=WTUX95IdOikLzETi&t=881)
+
+- [Geoff Hinton on weight sharing](https://www.therobotbrains.ai/geoff-hinton-transcript-part-one)
