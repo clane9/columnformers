@@ -1,0 +1,35 @@
+.DS_Store
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+
+# Vim
+*.swp
+
+# Distribution / packaging
+*.egg-info/
+dist
+build
+_version.py
+
+# VScode IDE
+.vscode/
+.env
+
+# Virtual environment
+.venv/
+
+# Local data and scratch
+.scratch
+checkpoints
+results
+
+# Jupyter
+.ipynb_checkpoints
+
+# SLURM
+slurm-*
+
+# Wandb
+wandb/

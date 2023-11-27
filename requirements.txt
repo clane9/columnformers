@@ -1,0 +1,14 @@
+datasets==2.15.0
+hf-argparser @ git+https://github.com/clane9/hf-argparser@v4.29.0
+ipython==8.18.0
+jupyter==1.0.0
+matplotlib==3.8.2
+numpy==1.26.2
+Pillow==10.1.0
+pre-commit==3.5.0
+pytest==7.4.3
+timm==0.9.12
+torch==2.1.1
+torchvision==0.16.1
+tqdm==4.66.1
+wandb==0.16.0
