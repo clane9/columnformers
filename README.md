@@ -2,6 +2,8 @@
 
 ![Cortical columns](.github/images/columns.png)
 
+**Work in progress, feedback and collaboration welcome!**
+
 Transformers are amazing models. Could they be useful models of the brain? At a fine scale, the "columns" of a transformer somewhat resemble cortical columns. Zooming out however, the large-scale architecture of the transformer is pretty different from the brain:
 
 - In a transformer, the columns are arranged in a sequence. In the brain, they are arranged on a 2D folded cortical sheet.
@@ -50,6 +52,10 @@ Brain activity and connectivity patterns are both highly sparse. Likewise, it wi
 - Should we try to hand-design sparse connectivity patterns?
 - Can we learn sparse connectivity patterns? What about some kind of progressive model training, where we alternate between training, pruning connections, and scaling the model?
 - Will it be useful to promote sparsity over the column activations? Or could activation sparsity emerge spontaneously?
+
+## Contributing
+
+This is a personal side research project. All work will be done openly. If you're interested in this idea, please get in touch! Feedback or collaboration is very welcome!
 
 ## Related work and inspiration
 
