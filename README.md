@@ -10,7 +10,7 @@ Transformers are amazing models. Could they be useful models of the brain? At a 
 - Each column in a transformer layer shares weights. Weight sharing between columns in the brain is not possible.
 - A transformer consists of multiple independent layers (i.e. blocks) applied sequentially. The brain consists of a single layer of columns (the cortex) applied recurrently.
 
-Here we try to design a transformer-like architecture that closes some of these gaps. We call our model a **Columnformer** (for now).
+Here I try to design a transformer-like architecture, the **Columnformer**, that closes some of these gaps.
 
 ## Model architecture
 
@@ -28,7 +28,7 @@ Effectively, the attention module implements communication between columns, whil
 
 ### Emergence of brain-like connectivity
 
-The proposed model is highly flexible. Only the geometry of the column layer constrains the learned connectivity pattern (cf [Geometric constraints on brain function]((https://www.nature.com/articles/s41586-023-06098-1))). This raises interesting questions:
+The proposed model is highly flexible. Only the geometry of the column layer constrains the learned connectivity pattern (cf [Geometric constraints on brain function](https://www.nature.com/articles/s41586-023-06098-1)). This raises interesting questions:
 
 - What sorts of connectivity patterns does the model learn?
 - Will we see spontaneous emergence of functional hierarchy?  Feedback connections? Topographic organization? Functional specialization?
@@ -41,15 +41,15 @@ Both the transformer and the columnformer have a width (the number of columns) a
 
 - Because width >> depth, columnformers have many more parameters than transformers, therefore less inductive bias. Will columnformers even learn?
 - How hard is it to get the untied columns in a columnformer to "agree" on a latent feature space? Do we need some penalty term to promote feature consistency (e.g. [feature smoothness](https://arxiv.org/abs/2308.09431))?
+- Are there any advantages to sharing weights across depth? I.e. is there advantage to recurrence?
 
 ### Sparsity
 
-Brain activity patterns and connectivity patterns are both highly sparse. Likewise, it will be important to leverage sparsity in columnformers as we scale the number of columns. What's the best way to approach this?
+Brain activity and connectivity patterns are both highly sparse. Likewise, it will be important to leverage sparsity in columnformers as we scale the number of columns. What's the best way to approach this?
 
 - Should we try to hand-design sparse connectivity patterns?
 - Can we learn sparse connectivity patterns? What about some kind of progressive model training, where we alternate between training, pruning connections, and scaling the model?
-- Will it be useful to promote sparsity over the column activations (cf [sparse mixture-of-experts](https://arxiv.org/abs/1701.06538))?
-- Could activation sparsity emerge spontaneously?
+- Will it be useful to promote sparsity over the column activations? Or could activation sparsity emerge spontaneously?
 
 ## Related work and inspiration
 
