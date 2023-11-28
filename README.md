@@ -12,7 +12,7 @@ Transformers are amazing models. Could they be useful models of the brain? At a 
 - Each column in a transformer layer shares weights. Weight sharing between columns in the brain is not possible.
 - A transformer consists of multiple independent layers (i.e. blocks) applied sequentially. The brain consists of a single layer of columns (the cortex) applied recurrently.
 
-Here we try to design a transformer-like architecture, the **Columnformer**, that closes some of these gaps.
+Here we try to design a transformer-like architecture, the **Columnformer**, that closes these gaps.
 
 ## Model architecture
 
@@ -71,13 +71,13 @@ This is a personal side research project. All work will be done openly. If you'r
 
 - Margalit, Eshed, et al. [A Unifying Principle for the Functional Organization of Visual Cortex.](https://www.biorxiv.org/content/10.1101/2023.05.18.541361v1) bioRxiv (2023).
 
+- Achterberg, Jascha, et al. [Spatially embedded recurrent neural networks reveal widespread links between structural and functional neuroscience findings.](https://www.nature.com/articles/s42256-023-00748-9) Nature Machine Intelligence (2023).
+
 - Pogodin, Roman, et al. [Towards biologically plausible convolutional networks.](https://proceedings.neurips.cc/paper/2021/hash/746b02b6680562f44ad7526675bac026-Abstract.html) NeurIPS (2021).
 
 - [Capsule networks](https://proceedings.neurips.cc/paper_files/paper/2017/hash/2cad8fa47bbef282badbb8de5374b894-Abstract.html)
 
 - [Sparse Mixture-of-Experts](https://arxiv.org/abs/1701.06538)
-
-- [Jeff Hawkins on 1000 brains theory](https://www.nature.com/articles/d41586-023-01531-x)
 
 - [Andrej Karpathy on transformers vs the brain](https://youtu.be/XfpMkf4rD6E?si=WTUX95IdOikLzETi&t=881)
 

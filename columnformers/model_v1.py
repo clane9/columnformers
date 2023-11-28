@@ -37,18 +37,14 @@ class ColumnAttention(nn.Module):
         self.k = ColumnLinear(seq_len, dim, qk_dim, bias=True)
         self.attn_drop = nn.Dropout(attn_drop)
 
-    def forward(
-        self, x: torch.Tensor, return_attn: bool = False
-    ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         q = self.scale * self.q(x)
         k = self.k(x)
         attn = q @ k.transpose(-2, -1)
         attn = F.softmax(attn, dim=-1)
         attn = self.attn_drop(attn)
         x = attn @ x
-        if return_attn:
-            return x, attn
-        return x
+        return x, attn
 
 
 class ColumnMlp(nn.Module):
@@ -175,6 +171,76 @@ class ColumnNorm(nn.Module):
         )
 
 
+class ColumnBlock(nn.Module):
+    def __init__(
+        self,
+        seq_len: int,
+        dim: int,
+        inner_dim: int = 64,
+        attn_drop: float = 0.0,
+        proj_drop: float = 0.0,
+        act_layer: Layer = nn.GELU,
+    ):
+        super().__init__()
+        self.norm1 = ColumnNorm(seq_len, dim)
+        self.attn = ColumnAttention(
+            seq_len=seq_len, dim=dim, qk_dim=inner_dim, attn_drop=attn_drop
+        )
+        self.norm2 = ColumnNorm(seq_len, dim)
+        self.mlp = ColumnMlp(
+            seq_len=seq_len,
+            in_features=dim,
+            hidden_features=inner_dim,
+            out_features=dim,
+            act_layer=act_layer,
+            drop=(0.0, proj_drop),
+        )
+
+    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        pooled, attn = self.attn(self.norm1(x))
+        x = x + pooled
+        x = x + self.mlp(self.norm2(x))
+        return x, attn
+
+
+class Columnformer(nn.Module):
+    def __init__(
+        self,
+        seq_len: int,
+        dim: int,
+        depth: int = 6,
+        inner_dim: int = 64,
+        attn_drop: float = 0.0,
+        proj_drop: float = 0.0,
+        act_layer: Layer = nn.GELU,
+    ):
+        super().__init__()
+        self.depth = depth
+
+        self.block = ColumnBlock(
+            seq_len=seq_len,
+            dim=dim,
+            inner_dim=inner_dim,
+            attn_drop=attn_drop,
+            proj_drop=proj_drop,
+            act_layer=act_layer,
+        )
+
+    def forward(
+        self, x: torch.Tensor, depth: Optional[int] = None
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        depth = depth or self.depth
+        attn = None
+        for _ in range(depth):
+            x, step_attn = self.block(x)
+            attn = step_attn if attn is None else attn + step_attn
+        attn = attn / depth
+        return x, attn
+
+    def extra_repr(self) -> str:
+        return f"{self.depth}"
+
+
 class WiringCost(nn.Module):
     """
     L1 penalty weighted by wiring distance.
@@ -192,77 +258,9 @@ class WiringCost(nn.Module):
         self.register_buffer("dist", dist)
 
     def forward(self, edges: torch.Tensor):
-        cost = self.lambd * (edges.abs() * self.dist).sum(dim=(-2, -1)).mean()
+        # edges assumed to be non-negative
+        cost = self.lambd * (edges * self.dist).sum(dim=(-2, -1)).mean()
         return cost
 
     def extra_repr(self) -> str:
         return f"{self.geometry.shape[0]}, {self.geometry.shape[1]}, lambd={self.lambd}"
-
-
-class ColumnBlock(nn.Module):
-    def __init__(
-        self,
-        seq_len: int,
-        dim: int,
-        mlp_ratio: float = 1 / 8.0,
-        attn_drop: float = 0.0,
-        proj_drop: float = 0.0,
-        act_layer: Layer = nn.GELU,
-    ):
-        super().__init__()
-        inner_dim = int(mlp_ratio * dim)
-
-        self.norm1 = ColumnNorm(seq_len, dim)
-        self.attn = ColumnAttention(
-            seq_len=seq_len, dim=dim, qk_dim=inner_dim, attn_drop=attn_drop
-        )
-        self.norm2 = ColumnNorm(seq_len, dim)
-        self.mlp = ColumnMlp(
-            seq_len=seq_len,
-            in_features=dim,
-            hidden_features=inner_dim,
-            out_features=dim,
-            act_layer=act_layer,
-            drop=(0.0, proj_drop),
-        )
-
-    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        input, attn = self.attn(self.norm1(x), return_attn=True)
-        x = x + input
-        x = x + self.mlp(self.norm2(x))
-        return x, attn
-
-
-class Columnformer(nn.Module):
-    def __init__(
-        self,
-        seq_len: int,
-        dim: int,
-        depth: int = 6,
-        mlp_ratio: float = 1 / 8.0,
-        attn_drop: float = 0.0,
-        proj_drop: float = 0.0,
-        act_layer: Layer = nn.GELU,
-    ):
-        super().__init__()
-        self.depth = depth
-
-        self.block = ColumnBlock(
-            seq_len=seq_len,
-            dim=dim,
-            mlp_ratio=mlp_ratio,
-            attn_drop=attn_drop,
-            proj_drop=proj_drop,
-            act_layer=act_layer,
-        )
-
-    def forward(
-        self, x: torch.Tensor, depth: Optional[int] = None
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        depth = depth or self.depth
-        attn = None
-        for _ in range(depth):
-            x, step_attn = self.block(x)
-            attn = step_attn if attn is None else attn + step_attn
-        attn = attn / depth
-        return x, attn
