@@ -1,6 +1,8 @@
 # Columnformer: A Transformer-inspired model of the brain
 
-![Cortical columns](.github/images/columns.png)
+<p align="center">
+  <img src=".github/images/columns.png" width="600">
+</p>
 
 **Work in progress, feedback and collaboration welcome!**
 
