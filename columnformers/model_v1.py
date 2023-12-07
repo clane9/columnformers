@@ -5,6 +5,8 @@ import torch.nn.functional as F
 from timm.layers.helpers import to_2tuple
 from torch import nn
 
+from .registry import register_model
+
 Layer = Callable[..., nn.Module]
 
 
@@ -18,6 +20,7 @@ class ColumnAttention(nn.Module):
         - only one head
         - low-dim key and query (to save params)
         - value = input
+        - attention bias
 
     TODO:
         - sparse connectivity
@@ -27,20 +30,23 @@ class ColumnAttention(nn.Module):
         self,
         seq_len: int,
         dim: int,
-        qk_dim: int,
+        qk_dim: int = 64,
+        qk_bias: Union[bool, Tuple[bool, bool]] = True,
         attn_drop: float = 0.0,
     ):
         super().__init__()
         self.scale = dim**-0.5
+        biases = to_2tuple(qk_bias)
 
-        self.q = ColumnLinear(seq_len, dim, qk_dim, bias=True)
-        self.k = ColumnLinear(seq_len, dim, qk_dim, bias=True)
-        self.attn_drop = nn.Dropout(attn_drop)
+        self.q = ColumnLinear(seq_len, dim, qk_dim, bias=biases[0])
+        self.k = ColumnLinear(seq_len, dim, qk_dim, bias=biases[1])
+        self.attn_drop = nn.Dropout(attn_drop) if attn_drop > 0 else nn.Identity()
+        self.attn_bias = nn.Parameter(torch.zeros(seq_len, seq_len))
 
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         q = self.scale * self.q(x)
         k = self.k(x)
-        attn = q @ k.transpose(-2, -1)
+        attn = q @ k.transpose(-2, -1) + self.attn_bias
         attn = F.softmax(attn, dim=-1)
         attn = self.attn_drop(attn)
         x = attn @ x
@@ -70,9 +76,9 @@ class ColumnMlp(nn.Module):
 
         self.fc1 = ColumnLinear(seq_len, in_features, hidden_features, bias=biases[0])
         self.act = act_layer() if act_layer is not None else nn.Identity()
-        self.drop1 = nn.Dropout(drop_probs[0])
+        self.drop1 = nn.Dropout(drop_probs[0]) if drop_probs[0] > 0 else nn.Identity()
         self.fc2 = ColumnLinear(seq_len, hidden_features, out_features, bias=biases[1])
-        self.drop2 = nn.Dropout(drop_probs[1])
+        self.drop2 = nn.Dropout(drop_probs[1]) if drop_probs[1] > 0 else nn.Identity()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.fc1(x)
@@ -178,10 +184,13 @@ class ColumnBlock(nn.Module):
         dim: int,
         inner_dim: int = 64,
         attn_drop: float = 0.0,
-        proj_drop: float = 0.0,
+        proj_drop: Union[float, Tuple[float, float]] = 0.0,
         act_layer: Layer = nn.GELU,
+        skip_attn: bool = False,
     ):
         super().__init__()
+        self.skip_attn = skip_attn
+
         self.norm1 = ColumnNorm(seq_len, dim)
         self.attn = ColumnAttention(
             seq_len=seq_len, dim=dim, qk_dim=inner_dim, attn_drop=attn_drop
@@ -193,37 +202,50 @@ class ColumnBlock(nn.Module):
             hidden_features=inner_dim,
             out_features=dim,
             act_layer=act_layer,
-            drop=(0.0, proj_drop),
+            drop=proj_drop,
         )
 
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         pooled, attn = self.attn(self.norm1(x))
-        x = x + pooled
+        x = x + pooled if self.skip_attn else pooled
         x = x + self.mlp(self.norm2(x))
         return x, attn
 
+    def extra_repr(self) -> str:
+        return f"skip_attn={self.skip_attn}"
 
-class Columnformer(nn.Module):
+
+class ColumnFormer(nn.Module):
+    """
+    A transformer-inspired model of the brain. Consists of a single block of attention +
+    MLP columns with untied weights, applied to the input recursively.
+    """
+
     def __init__(
         self,
         seq_len: int,
-        dim: int,
-        depth: int = 6,
+        embed_dim: int,
+        depth: int = 12,
         inner_dim: int = 64,
         attn_drop: float = 0.0,
         proj_drop: float = 0.0,
         act_layer: Layer = nn.GELU,
+        skip_attn: bool = True,
     ):
         super().__init__()
+        self.seq_len = seq_len
+        self.embed_dim = embed_dim
+        self.inner_dim = inner_dim
         self.depth = depth
 
         self.block = ColumnBlock(
             seq_len=seq_len,
-            dim=dim,
+            dim=embed_dim,
             inner_dim=inner_dim,
             attn_drop=attn_drop,
             proj_drop=proj_drop,
             act_layer=act_layer,
+            skip_attn=skip_attn,
         )
 
     def forward(
@@ -237,30 +259,38 @@ class Columnformer(nn.Module):
         attn = attn / depth
         return x, attn
 
+    def init_attn_bias(self, attn_bias: torch.Tensor):
+        self.block.attn.attn_bias.data.copy_(attn_bias)
+
     def extra_repr(self) -> str:
-        return f"{self.depth}"
+        return (
+            f"{self.seq_len}, {self.embed_dim}, depth={self.depth}, "
+            f"inner_dim={self.inner_dim}"
+        )
 
 
 class WiringCost(nn.Module):
     """
     L1 penalty weighted by wiring distance.
+
+    Args:
+        dist: distance matrix, shape (N, N)
     """
 
-    geometry: torch.Tensor
     dist: torch.Tensor
 
-    def __init__(self, geometry: torch.Tensor, lambd: float = 0.01):
+    def __init__(self, dist: torch.Tensor):
         super().__init__()
-        self.lambd = lambd
-
-        dist = torch.cdist(geometry, geometry)
-        self.register_buffer("geometry", geometry)
         self.register_buffer("dist", dist)
 
     def forward(self, edges: torch.Tensor):
         # edges assumed to be non-negative
-        cost = self.lambd * (edges * self.dist).sum(dim=(-2, -1)).mean()
-        return cost
+        return (edges * self.dist).sum(dim=(-2, -1)).mean()
 
     def extra_repr(self) -> str:
-        return f"{self.geometry.shape[0]}, {self.geometry.shape[1]}, lambd={self.lambd}"
+        return f"{self.dist.shape[0]}"
+
+
+@register_model
+def columnformer_v1_small(**kwargs):
+    return ColumnFormer(seq_len=384, embed_dim=384, depth=12, inner_dim=64, **kwargs)
