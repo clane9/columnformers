@@ -6,81 +6,189 @@
 
 **Work in progress, feedback and collaboration welcome!**
 
-Transformers are amazing models. Could they be useful models of the brain? At a fine scale, the "columns" of a transformer somewhat resemble cortical columns. Zooming out however, the large-scale architecture of the transformer is pretty different from the brain:
+## Motivation
 
-- In a transformer, the columns are arranged in a sequence. In the brain, they are arranged on a 2D folded cortical sheet.
-- A transformer is "narrow" with a typical column count (i.e. sequence length) of ~10<sup>3</sup>. The brain is "wide" with ~10<sup>6</sup> columns.
-- A transformer has dense all-to-all connectivity between columns. The brain has sparse connectivity with mostly local and some long-range connections.
-- Each column in a transformer layer shares weights. Weight sharing between columns in the brain is not possible.
-- A transformer consists of multiple independent layers (i.e. blocks) applied sequentially. The brain consists of a single layer of columns (the cortex) applied recurrently.
+Transformers have been very successful. Could they be useful models of the brain? At a fine scale, the transformer module somewhat reminds us of cortical columns. They receive vector input, do some computation, and produce vector output. Following this analogy, we adapt the transformer to make the overall architecture more brain-like:
 
-Here we try to design a transformer-like architecture, the **Columnformer**, that closes these gaps.
+- We untie weights across the modules in each block. (The brain doesn't share weights.)
+- We flatten the blocks into a single sheet. (Like the cortex.)
+- During a forward pass, we unroll the sheet for several time steps. (The brain is recurrent.)
+- We spatially embed the sheet and promote local communication. (Connectivity in the brain is mostly local.)
 
-## Model architecture
+We call our architecture the **columnformer**.
 
-- The model consists of a single large layer of "columns".
-- Each column consists of an attention and an MLP module, like a transformer.
-- Unlike a transformer, columns do not share weights.
-- The model is recurrent. The layer is applied to the input recursively for `depth` steps.
+<p align="center">
+  <img src=".github/images/columnformer.svg" width="600">
+</p>
 
-Effectively, the attention module implements communication between columns, while the MLP implements computation within a column (cf [Karpathy on Transformers](https://youtu.be/XfpMkf4rD6E?si=iT1_bXOyhfb7_tJ8&t=1389)). To promote sparse, structured communication between columns, we also:
+We think the architecture is interesting because of two key properties:
 
-- Embed columns in a geometric space. E.g. on a 2D grid or sphere.
-- Penalize the "wiring cost" of the attention map with respect to this geometry.
+- **Topography**. By untying weights and embedding the columns spatially, the model has the potential to learn topographic functional specialization, as seen in the primate ventral visual stream [1-3].
+
+- **Recurrence**. Most popular neural network architectures, including the transformer, are purely feedforward. By recursively unrolling the sheet, the columns of our model can communicate in any direction: feedforward, feedback, lateral, etc.
+
+<!-- You could ask, is there even a well-defined feedforward direction? Indeed, any feedforward direction is determined only by the geometry and where input is injected. -->
+
+## Architecture details
+
+See [`model_v1.py`](columnformers/model_v1.py) for the implementation of our initial model. In short, the model "sheet" is just a transformer block but with untied weights across the sequence. Each "column" in the sheet consists of an Attention and MLP module preceded by LayerNorm. The Attention module handles communication between columns, while the MLP does within-column computation [4].
+
+To save parameters, we make a few changes to the Attention and MLP:
+  - We use a single attention head
+  - We eliminate the value weights and instead set the value to be the input
+  - We use a small MLP hidden dimension
+
+<!-- The largest best performing transformers use many attention heads and a large MLP hidden dimension. In our case, we shouldn't need to do this since the columns are untied. Our effective number of heads and MLP hidden dimension scales with the number of columns. -->
+
+We also add a learned bias to our Attention (`attn = softmax(q @ k.T + bias)`), which encodes the learned connectivity between columns.
+
+The key final part of the architecture is a fixed distance matrix encoding the geometry of the sheet. For example, this could be the Euclidean distance matrix computed from a fixed embedding. E.g. a flat 2D grid, points on a sphere, or a stack of 2D layers.
+
+<!-- We could even generalize the distance matrix to arbitrary directed graph edge weights. This would let us encode feedforward architectures as a special case. -->
+
+<p align="center">
+  <img src=".github/images/geometries.svg" width="430">
+</p>
+
+We use the distance matrix to promote local communication in two ways:
+
+1. By initializing the attention bias (e.g. `bias = -dist**2`).
+2. By penalizing the total "wiring cost" of the attention matrix (e.g. `cost = (dist * attn).mean()`).
+
+Effectively, the geometry of the sheet constrains how information can flow through the network [6].
 
 ## Questions
 
-### Emergence of brain-like connectivity
-
-The proposed model is highly flexible. Only the geometry of the column layer constrains the learned connectivity pattern (cf [Geometric constraints on brain function](https://www.nature.com/articles/s41586-023-06098-1)). This raises interesting questions:
-
-- What sorts of connectivity patterns does the model learn?
-- Will we see spontaneous emergence of functional hierarchy?  Feedback connections? Topographic organization? Functional specialization?
-- What kinds of geometries and wiring cost penalties lead to more brain-like connectivity?
-- Is it possible to *learn* an optimal geometry?
-
-### Impact of weight sharing
-
-Both the transformer and the columnformer have a width (the number of columns) and a depth (the number of compute steps). One key difference is that the transformer shares weights across width, whereas the columnformer shares weights across depth (through recurrence). What impact does this have on model performance?
-
-- Because width >> depth, columnformers have many more parameters than transformers, therefore less inductive bias. Will columnformers even learn?
-- How hard is it to get the untied columns in a columnformer to "agree" on a latent feature space? Do we need some penalty term to promote feature consistency (e.g. [feature smoothness](https://arxiv.org/abs/2308.09431))?
-- Are there any advantages to sharing weights across depth? I.e. is there advantage to recurrence?
-
-### Sparsity
-
-Brain activity and connectivity patterns are both highly sparse. Likewise, it will be important to leverage sparsity in columnformers as we scale the number of columns. What's the best way to approach this?
-
-- Should we try to hand-design sparse connectivity patterns?
-- Can we learn sparse connectivity patterns? What about some kind of progressive model training, where we alternate between training, pruning connections, and scaling the model?
-- Will it be useful to promote sparsity over the column activations? Or could activation sparsity emerge spontaneously?
+- Can we train the model?
+- Can we get decent task performance?
+- What kinds of connectivity will the model learn?
+- What kinds of topographic structure will emerge?
+- What kinds of geometries, initialization, and regularization promote more brain-like connectivity and topography?
+- How do dataset and task impact connectivity and topography?
+- How well do the learned representations match brain activity data?
+- Does the architecture have any advantages over the transformer, e.g. in task performance, robustness, scalability, or interpretability?
 
 ## Roadmap
 
+### Short-term
+
 - [x] Initial model implementation ([`model_v1.py`](columnformers/model_v1.py))
-- [ ] Masked-image-modeling training implementation
-- [ ] Initial training run of small model on [COCO](https://huggingface.co/datasets/detection-datasets/coco)
+- [ ] Research related work
+- [ ] Implement benchmark train/eval pipelines
+  - [ ] Image classification
+  - [ ] Masked image modeling
+- [ ] Get baseline performance of v1 model
+- [ ] Iterate to understand and improve performance
+  - [ ] Iterate training recipe
+  - [ ] Iterate architecture
+
+### Longer-term
+
+- [ ] Analyze learned topography and connectivity
+- [ ] Evaluate brain activity encoding performance
+- [ ] Evaluate robustness
+- [ ] Efficient implementation, e.g. [sparse attention](https://github.com/facebookresearch/xformers/blob/40d39673285217d9c6b9a0e01e8809a10b771209/xformers/components/attention/random.py#L40)
+- [ ] Explore strategies for model scaling, e.g. leveraging sparse connectivity
 
 ## Contributing
 
-This is a personal side research project. All work will be done openly. If you're interested in this idea, please get in touch! Feedback or collaboration is very welcome!
+This project is under active development in collaboration with [MedARC](https://www.medarc.ai/) and we welcome contributions or feedback! If you're interested in the project, please get in touch on [discord](https://discord.com/invite/CqsMthnauZ).
 
-## Related work and inspiration
+## References and related work
 
-- Lu, Zejin, et al. [End-to-end topographic networks as models of cortical map formation and human visual behaviour: moving beyond convolutions.](https://arxiv.org/abs/2308.09431) arXiv (2023).
+<div id="refs" class="references csl-bib-body" entry-spacing="0">
 
-- Doshi, Fenil R., and Talia Konkle. [Cortical topographic motifs emerge in a self-organized map of object space.](https://doi.org/10.1126/sciadv.ade8187) Science Advances (2023).
+<div id="ref-Lu2023" class="csl-entry">
 
-- Margalit, Eshed, et al. [A Unifying Principle for the Functional Organization of Visual Cortex.](https://www.biorxiv.org/content/10.1101/2023.05.18.541361v1) bioRxiv (2023).
+<span class="csl-left-margin">\[1\]
+</span><span class="csl-right-inline">Z. Lu *et al.*, “End-to-end
+topographic networks as models of cortical map formation and human
+visual behaviour: Moving beyond convolutions,” *arXiv preprint
+arXiv:2308.09431*, 2023.</span>
 
-- Achterberg, Jascha, et al. [Spatially embedded recurrent neural networks reveal widespread links between structural and functional neuroscience findings.](https://www.nature.com/articles/s42256-023-00748-9) Nature Machine Intelligence (2023).
+</div>
 
-- Pogodin, Roman, et al. [Towards biologically plausible convolutional networks.](https://proceedings.neurips.cc/paper/2021/hash/746b02b6680562f44ad7526675bac026-Abstract.html) NeurIPS (2021).
+<div id="ref-Doshi2023" class="csl-entry">
 
-- [Capsule networks](https://proceedings.neurips.cc/paper_files/paper/2017/hash/2cad8fa47bbef282badbb8de5374b894-Abstract.html)
+<span class="csl-left-margin">\[2\]
+</span><span class="csl-right-inline">F. R. Doshi and T. Konkle,
+“Cortical topographic motifs emerge in a self-organized map of object
+space,” *Science Advances*, 2023.</span>
 
-- [Sparse Mixture-of-Experts](https://arxiv.org/abs/1701.06538)
+</div>
 
-- [Andrej Karpathy on transformers vs the brain](https://youtu.be/XfpMkf4rD6E?si=WTUX95IdOikLzETi&t=881)
+<div id="ref-Margalit2023" class="csl-entry">
 
-- [Geoff Hinton on weight sharing](https://www.therobotbrains.ai/geoff-hinton-transcript-part-one)
+<span class="csl-left-margin">\[3\]
+</span><span class="csl-right-inline">E. Margalit *et al.*, “A unifying
+principle for the functional organization of visual cortex,” *bioRxiv*,
+2023.</span>
+
+</div>
+
+<div id="ref-Karpathy2023" class="csl-entry">
+
+<span class="csl-left-margin">\[4\]
+</span><span class="csl-right-inline">A. Karpathy, “Introduction to
+transformers.” <https://youtu.be/XfpMkf4rD6E?si=AM9AWDegUaFB7KCe>,
+2023.</span>
+
+</div>
+
+<div id="ref-Pang2023A" class="csl-entry">
+
+<span class="csl-left-margin">\[5\]
+</span><span class="csl-right-inline">J. C. Pang *et al.*, “Geometric
+constraints on human brain function,” *Nature*, 2023.</span>
+
+</div>
+
+<div id="ref-Achterberg2023" class="csl-entry">
+
+<span class="csl-left-margin">\[6\]
+</span><span class="csl-right-inline">J. Achterberg *et al.*, “Spatially
+embedded recurrent neural networks reveal widespread links between
+structural and functional neuroscience findings,” *Nature Machine
+Intelligence*, 2023.</span>
+
+</div>
+
+<div id="ref-Hinton2022" class="csl-entry">
+
+<span class="csl-left-margin">\[7\]
+</span><span class="csl-right-inline">G. Hinton, “The robot brains
+season 2 episode 22.”
+<https://www.therobotbrains.ai/who-is-geoff-hinton-part-two>,
+2022.</span>
+
+</div>
+
+<div id="ref-Pogodin2021" class="csl-entry">
+
+<span class="csl-left-margin">\[8\]
+</span><span class="csl-right-inline">R. Pogodin, Y. Mehta, T.
+Lillicrap, and P. E. Latham, “Towards biologically plausible
+convolutional networks,” *Advances in Neural Information Processing
+Systems*, 2021.</span>
+
+</div>
+
+<div id="ref-Sabour2017" class="csl-entry">
+
+<span class="csl-left-margin">\[9\]
+</span><span class="csl-right-inline">S. Sabour, N. Frosst, and G. E.
+Hinton, “Dynamic routing between capsules,” *Advances in neural
+information processing systems*, 2017.</span>
+
+</div>
+
+<div id="ref-Velickovic2018" class="csl-entry">
+
+<span class="csl-left-margin">\[10\]
+</span><span class="csl-right-inline">P. Veličković *et al.*, “Graph
+attention networks,” in *International conference on learning
+representations*, 2018.</span>
+
+</div>
+
+</div>

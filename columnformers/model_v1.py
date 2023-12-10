@@ -177,7 +177,7 @@ class ColumnNorm(nn.Module):
         )
 
 
-class ColumnBlock(nn.Module):
+class Sheet(nn.Module):
     def __init__(
         self,
         seq_len: int,
@@ -215,7 +215,7 @@ class ColumnBlock(nn.Module):
         return f"skip_attn={self.skip_attn}"
 
 
-class ColumnFormer(nn.Module):
+class Columnformer(nn.Module):
     """
     A transformer-inspired model of the brain. Consists of a single block of attention +
     MLP columns with untied weights, applied to the input recursively.
@@ -238,7 +238,7 @@ class ColumnFormer(nn.Module):
         self.inner_dim = inner_dim
         self.depth = depth
 
-        self.block = ColumnBlock(
+        self.block = Sheet(
             seq_len=seq_len,
             dim=embed_dim,
             inner_dim=inner_dim,
@@ -293,4 +293,4 @@ class WiringCost(nn.Module):
 
 @register_model
 def columnformer_v1_small(**kwargs):
-    return ColumnFormer(seq_len=384, embed_dim=384, depth=12, inner_dim=64, **kwargs)
+    return Columnformer(seq_len=384, embed_dim=384, depth=12, inner_dim=64, **kwargs)

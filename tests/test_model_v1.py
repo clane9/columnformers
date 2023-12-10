@@ -3,12 +3,12 @@ import logging
 import pytest
 import torch
 
-from columnformers.model_v1 import ColumnFormer, WiringCost
+from columnformers.model_v1 import Columnformer, WiringCost
 
 
 def test_model():
     torch.manual_seed(42)
-    model = ColumnFormer(seq_len=256, embed_dim=384, depth=4)
+    model = Columnformer(seq_len=256, embed_dim=384, depth=4)
     logging.info("Model:\n%s", model)
     logging.info("Params: %.1fM", sum(p.numel() for p in model.parameters()) / 1e6)
 
