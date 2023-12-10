@@ -31,7 +31,7 @@ class ColumnAttention(nn.Module):
         seq_len: int,
         dim: int,
         qk_dim: int = 64,
-        qk_bias: Union[bool, Tuple[bool, bool]] = True,
+        qk_bias: Union[bool, Tuple[bool, bool]] = (True, False),
         attn_drop: float = 0.0,
     ):
         super().__init__()
@@ -202,6 +202,7 @@ class Sheet(nn.Module):
             hidden_features=inner_dim,
             out_features=dim,
             act_layer=act_layer,
+            bias=(True, False),
             drop=proj_drop,
         )
 
@@ -238,7 +239,7 @@ class Columnformer(nn.Module):
         self.inner_dim = inner_dim
         self.depth = depth
 
-        self.block = Sheet(
+        self.sheet = Sheet(
             seq_len=seq_len,
             dim=embed_dim,
             inner_dim=inner_dim,
@@ -254,13 +255,13 @@ class Columnformer(nn.Module):
         depth = depth or self.depth
         attn = None
         for _ in range(depth):
-            x, step_attn = self.block(x)
+            x, step_attn = self.sheet(x)
             attn = step_attn if attn is None else attn + step_attn
         attn = attn / depth
         return x, attn
 
     def init_attn_bias(self, attn_bias: torch.Tensor):
-        self.block.attn.attn_bias.data.copy_(attn_bias)
+        self.sheet.attn.attn_bias.data.copy_(attn_bias)
 
     def extra_repr(self) -> str:
         return (
