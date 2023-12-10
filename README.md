@@ -18,7 +18,7 @@ Transformers have been very successful. Could they be useful models of the brain
 We call our architecture the **columnformer**.
 
 <p align="center">
-  <img src=".github/images/columnformer.svg" width="600">
+  <img src=".github/images/columnformer.svg" width="800">
 </p>
 
 We think the architecture is interesting because of two key properties:
@@ -42,12 +42,12 @@ To save parameters, we make a few changes to the Attention and MLP:
 
 We also add a learned bias to our Attention (`attn = softmax(q @ k.T + bias)`), which encodes the learned connectivity between columns.
 
-The key final part of the architecture is a fixed distance matrix encoding the geometry of the sheet. For example, this could be the Euclidean distance matrix computed from a fixed embedding. E.g. a flat 2D grid, points on a sphere, or a stack of 2D layers.
+The key final part of the architecture is a fixed distance matrix encoding the geometry of the sheet. For example, this could be the Euclidean distance matrix computed from a fixed embedding. E.g. a flat 2D grid, spherical mesh, or a stack of 2D layers.
 
 <!-- We could even generalize the distance matrix to arbitrary directed graph edge weights. This would let us encode feedforward architectures as a special case. -->
 
 <p align="center">
-  <img src=".github/images/geometries.svg" width="430">
+  <img src=".github/images/geometries.svg" width="570">
 </p>
 
 We use the distance matrix to promote local communication in two ways:
