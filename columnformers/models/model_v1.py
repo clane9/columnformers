@@ -5,6 +5,7 @@ import torch.nn.functional as F
 from timm.layers.helpers import to_2tuple
 from torch import nn
 
+from .geometry import multilayer_embedding
 from .registry import register_model
 
 Layer = Callable[..., nn.Module]
@@ -23,7 +24,7 @@ class ColumnAttention(nn.Module):
         - attention bias
 
     TODO:
-        - sparse connectivity
+        - sparse attention
     """
 
     def __init__(
@@ -218,29 +219,36 @@ class Sheet(nn.Module):
 
 class Columnformer(nn.Module):
     """
-    A transformer-inspired model of the brain. Consists of a single block of attention +
+    A transformer-inspired model of the brain. Consists of a single sheet of attention +
     MLP columns with untied weights, applied to the input recursively.
     """
 
+    dist: torch.Tensor
+    scale_dist: torch.Tensor
+
     def __init__(
         self,
-        seq_len: int,
+        dist: torch.Tensor,
         embed_dim: int,
         depth: int = 12,
         inner_dim: int = 64,
         attn_drop: float = 0.0,
         proj_drop: float = 0.0,
         act_layer: Layer = nn.GELU,
-        skip_attn: bool = True,
+        skip_attn: bool = False,
+        attn_bias_sigma: float = 2.0,
+        attn_bias_min: Optional[float] = -18.0,
     ):
         super().__init__()
-        self.seq_len = seq_len
+        self.seq_len = dist.shape[0]
         self.embed_dim = embed_dim
         self.inner_dim = inner_dim
+        self.attn_bias_sigma = attn_bias_sigma
+        self.attn_bias_min = attn_bias_min
         self.depth = depth
 
         self.sheet = Sheet(
-            seq_len=seq_len,
+            seq_len=self.seq_len,
             dim=embed_dim,
             inner_dim=inner_dim,
             attn_drop=attn_drop,
@@ -248,6 +256,17 @@ class Columnformer(nn.Module):
             act_layer=act_layer,
             skip_attn=skip_attn,
         )
+
+        self.register_buffer("dist", dist)
+        self.register_buffer("scale_dist", dist / dist.max())
+        self.init_weights()
+
+    def init_weights(self):
+        # Initialize the attention bias to favor local communication
+        attn_bias = -self.dist**2 / (2 * self.attn_bias_sigma**2)
+        if self.attn_bias_min is not None:
+            attn_bias = torch.clip(attn_bias, min=self.attn_bias_min)
+        self.sheet.attn.attn_bias.data.copy_(attn_bias)
 
     def forward(
         self, x: torch.Tensor, depth: Optional[int] = None
@@ -260,8 +279,8 @@ class Columnformer(nn.Module):
         attn = attn / depth
         return x, attn
 
-    def init_attn_bias(self, attn_bias: torch.Tensor):
-        self.sheet.attn.attn_bias.data.copy_(attn_bias)
+    def wiring_cost(self, attn: torch.Tensor):
+        return (attn * self.scale_dist).sum(dim=(-2, -1)).mean()
 
     def extra_repr(self) -> str:
         return (
@@ -270,28 +289,8 @@ class Columnformer(nn.Module):
         )
 
 
-class WiringCost(nn.Module):
-    """
-    L1 penalty weighted by wiring distance.
-
-    Args:
-        dist: distance matrix, shape (N, N)
-    """
-
-    dist: torch.Tensor
-
-    def __init__(self, dist: torch.Tensor):
-        super().__init__()
-        self.register_buffer("dist", dist)
-
-    def forward(self, edges: torch.Tensor):
-        # edges assumed to be non-negative
-        return (edges * self.dist).sum(dim=(-2, -1)).mean()
-
-    def extra_repr(self) -> str:
-        return f"{self.dist.shape[0]}"
-
-
 @register_model
-def columnformer_v1_small(**kwargs):
-    return Columnformer(seq_len=384, embed_dim=384, depth=12, inner_dim=64, **kwargs)
+def columnformer_v1_patch16_128(**kwargs) -> Columnformer:
+    embedding = multilayer_embedding([8, 12, 14], offset=2.0)
+    dist = torch.cdist(embedding, embedding)
+    return Columnformer(dist=dist, embed_dim=384, depth=6, inner_dim=64, **kwargs)
