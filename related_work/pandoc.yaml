@@ -1,0 +1,11 @@
+input-file: RELATED_WORK_pandoc.md
+output-file: RELATED_WORK.md
+
+from: markdown
+to: gfm
+
+citeproc: true
+
+metadata:
+  bibliography: columnformers.bib
+  csl: ieee_compact.csl

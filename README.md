@@ -23,7 +23,7 @@ We call our architecture the **columnformer**.
 
 We think the architecture is interesting because of two key properties:
 
-- **Topography**. By untying weights and embedding the columns spatially, the model has the potential to learn topographic functional specialization, as seen in the primate ventral visual stream [1-3].
+- **Topography**. By untying weights and embedding the columns spatially, the model has the potential to learn topographic functional specialization, as seen in the primate ventral visual stream.
 
 - **Recurrence**. Most popular neural network architectures, including the transformer, are purely feedforward. By recursively unrolling the sheet, the columns of our model can communicate in any direction: feedforward, feedback, lateral, etc.
 
@@ -31,7 +31,7 @@ We think the architecture is interesting because of two key properties:
 
 ## Architecture details
 
-See [`model_v1.py`](columnformers/model_v1.py) for the implementation of our initial model. In short, the model "sheet" is just a transformer block but with untied weights across the sequence. Each "column" in the sheet consists of an Attention and MLP module preceded by LayerNorm. The Attention module handles communication between columns, while the MLP does within-column computation [4].
+See [`model_v1.py`](columnformers/models/model_v1.py) for the implementation of our initial model. In short, the model "sheet" is just a transformer block but with untied weights across the sequence. Each "column" in the sheet consists of an Attention and MLP module preceded by LayerNorm. The Attention module handles communication between columns, while the MLP does within-column computation.
 
 To save parameters, we make a few changes to the Attention and MLP:
   - We use a single attention head
@@ -55,7 +55,7 @@ We use the distance matrix to promote local communication in two ways:
 1. By initializing the attention bias (e.g. `bias = -dist**2`).
 2. By penalizing the total "wiring cost" of the attention matrix (e.g. `cost = (dist * attn).mean()`).
 
-Effectively, the geometry of the sheet constrains how information can flow through the network [6].
+Effectively, the geometry of the sheet constrains how information can flow through the network.
 
 ## Questions
 
@@ -68,22 +68,26 @@ Effectively, the geometry of the sheet constrains how information can flow throu
 - How well do the learned representations match brain activity data?
 - Does the architecture have any advantages over the transformer, e.g. in task performance, robustness, scalability, or interpretability?
 
+<!-- How could this architecture be better than the transformer?
+
+- Maybe the recurrence (unbounded compute depth, feedback driven refinement) improves performance/robustness.
+- Maybe the spatial embedding and local communication lends itself well to large-scale distributed training/inference
+- Maybe topographic organization is more interpretable. -->
+
 ## Roadmap
 
 ### Short-term
 
-- [x] Initial model implementation ([`model_v1.py`](columnformers/model_v1.py))
-- [ ] Research related work
-- [ ] Implement benchmark train/eval pipelines
-  - [ ] Image classification
-  - [ ] Masked image modeling
-- [ ] Get baseline performance of v1 model
+- [x] Initial model implementation ([`model_v1.py`](columnformers/models/model_v1.py))
+- [x] Get benchmark image classification dataset ([ImageNet-100](https://huggingface.co/datasets/clane9/imagenet-100))
+- [ ] Implement image classification train/eval pipelines
+- [ ] Get baseline performance.
 - [ ] Iterate to understand and improve performance
-  - [ ] Iterate training recipe
-  - [ ] Iterate architecture
 
 ### Longer-term
 
+- [ ] Research related work (in progress [here](related_work))
+- [ ] Implement pre-training for other tasks/datasets
 - [ ] Analyze learned topography and connectivity
 - [ ] Evaluate brain activity encoding performance
 - [ ] Evaluate robustness
@@ -94,101 +98,6 @@ Effectively, the geometry of the sheet constrains how information can flow throu
 
 This project is under active development in collaboration with [MedARC](https://www.medarc.ai/) and we welcome contributions or feedback! If you're interested in the project, please get in touch on [discord](https://discord.com/invite/CqsMthnauZ).
 
-## References and related work
+## Related work
 
-<div id="refs" class="references csl-bib-body" entry-spacing="0">
-
-<div id="ref-Lu2023" class="csl-entry">
-
-<span class="csl-left-margin">\[1\]
-</span><span class="csl-right-inline">Z. Lu *et al.*, “End-to-end
-topographic networks as models of cortical map formation and human
-visual behaviour: Moving beyond convolutions,” *arXiv preprint
-arXiv:2308.09431*, 2023.</span>
-
-</div>
-
-<div id="ref-Doshi2023" class="csl-entry">
-
-<span class="csl-left-margin">\[2\]
-</span><span class="csl-right-inline">F. R. Doshi and T. Konkle,
-“Cortical topographic motifs emerge in a self-organized map of object
-space,” *Science Advances*, 2023.</span>
-
-</div>
-
-<div id="ref-Margalit2023" class="csl-entry">
-
-<span class="csl-left-margin">\[3\]
-</span><span class="csl-right-inline">E. Margalit *et al.*, “A unifying
-principle for the functional organization of visual cortex,” *bioRxiv*,
-2023.</span>
-
-</div>
-
-<div id="ref-Karpathy2023" class="csl-entry">
-
-<span class="csl-left-margin">\[4\]
-</span><span class="csl-right-inline">A. Karpathy, “Introduction to
-transformers.” <https://youtu.be/XfpMkf4rD6E?si=AM9AWDegUaFB7KCe>,
-2023.</span>
-
-</div>
-
-<div id="ref-Pang2023A" class="csl-entry">
-
-<span class="csl-left-margin">\[5\]
-</span><span class="csl-right-inline">J. C. Pang *et al.*, “Geometric
-constraints on human brain function,” *Nature*, 2023.</span>
-
-</div>
-
-<div id="ref-Achterberg2023" class="csl-entry">
-
-<span class="csl-left-margin">\[6\]
-</span><span class="csl-right-inline">J. Achterberg *et al.*, “Spatially
-embedded recurrent neural networks reveal widespread links between
-structural and functional neuroscience findings,” *Nature Machine
-Intelligence*, 2023.</span>
-
-</div>
-
-<div id="ref-Hinton2022" class="csl-entry">
-
-<span class="csl-left-margin">\[7\]
-</span><span class="csl-right-inline">G. Hinton, “The robot brains
-season 2 episode 22.”
-<https://www.therobotbrains.ai/who-is-geoff-hinton-part-two>,
-2022.</span>
-
-</div>
-
-<div id="ref-Pogodin2021" class="csl-entry">
-
-<span class="csl-left-margin">\[8\]
-</span><span class="csl-right-inline">R. Pogodin, Y. Mehta, T.
-Lillicrap, and P. E. Latham, “Towards biologically plausible
-convolutional networks,” *Advances in Neural Information Processing
-Systems*, 2021.</span>
-
-</div>
-
-<div id="ref-Sabour2017" class="csl-entry">
-
-<span class="csl-left-margin">\[9\]
-</span><span class="csl-right-inline">S. Sabour, N. Frosst, and G. E.
-Hinton, “Dynamic routing between capsules,” *Advances in neural
-information processing systems*, 2017.</span>
-
-</div>
-
-<div id="ref-Velickovic2018" class="csl-entry">
-
-<span class="csl-left-margin">\[10\]
-</span><span class="csl-right-inline">P. Veličković *et al.*, “Graph
-attention networks,” in *International conference on learning
-representations*, 2018.</span>
-
-</div>
-
-</div>
+See [RELATED_WORK.MD](related_work/RELATED_WORK.md).
