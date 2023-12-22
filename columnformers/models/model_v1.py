@@ -1,3 +1,10 @@
+"""
+Columnformer v1.
+
+References:
+    timm/vision_transformer
+"""
+
 from typing import Callable, Optional, Tuple, Union
 
 import torch
@@ -22,9 +29,6 @@ class ColumnAttention(nn.Module):
         - low-dim key and query (to save params)
         - value = input
         - attention bias
-
-    TODO:
-        - sparse attention
     """
 
     def __init__(
@@ -237,7 +241,7 @@ class Columnformer(nn.Module):
         act_layer: Layer = nn.GELU,
         skip_attn: bool = False,
         attn_bias_sigma: float = 2.0,
-        attn_bias_min: Optional[float] = -18.0,
+        attn_bias_min: Optional[float] = -8.0,
     ):
         super().__init__()
         self.seq_len = dist.shape[0]
@@ -291,6 +295,6 @@ class Columnformer(nn.Module):
 
 @register_model
 def columnformer_v1_patch16_128(**kwargs) -> Columnformer:
-    embedding = multilayer_embedding([8, 12, 14], offset=2.0)
+    embedding = multilayer_embedding([8, 12, 16], offset=2.0)
     dist = torch.cdist(embedding, embedding)
     return Columnformer(dist=dist, embed_dim=384, depth=6, inner_dim=64, **kwargs)
