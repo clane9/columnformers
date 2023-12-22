@@ -13,6 +13,7 @@ requires-python = ">=3.10"
 license = {text = "MIT License"}
 dependencies = [
     "datasets",
+    "einops",
     "hf-argparser",
     "matplotlib",
     "numpy",

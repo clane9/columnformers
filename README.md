@@ -98,6 +98,23 @@ Effectively, the geometry of the sheet constrains how information can flow throu
 
 This project is under active development in collaboration with [MedARC](https://www.medarc.ai/) and we welcome contributions or feedback! If you're interested in the project, please get in touch on [discord](https://discord.com/invite/CqsMthnauZ).
 
+To get started working with the code, you can fork the repo and install the project in a local environment:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+
+pip install -U pip
+pip install -r requirements.txt
+pip install -e .
+```
+
+If you want to contribute changes, please also install the pre-commit hooks
+
+```bash
+pre-commit install
+```
+
 ## Related work
 
 See [RELATED_WORK.MD](related_work/RELATED_WORK.md).
