@@ -1,5 +1,5 @@
 import torch
-from timm.layers import trunc_normal_
+from timm.models.layers import trunc_normal_
 from torch import nn
 
 

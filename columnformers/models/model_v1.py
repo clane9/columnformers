@@ -9,7 +9,7 @@ from typing import Callable, Optional, Tuple, Union
 
 import torch
 import torch.nn.functional as F
-from timm.layers.helpers import to_2tuple
+from timm.models.layers.helpers import to_2tuple
 from torch import nn
 
 from .geometry import multilayer_embedding
