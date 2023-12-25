@@ -1,39 +1,6 @@
 #!/usr/bin/env python
-# coding: utf-8
-
-# # Columnformer Testing playground on ImageNet-100
-
-# ## 1 - Getting started
-# 
-# TBD  
-
-# ## 2 - Cloning the code
-# 
-# Clone your fork of the code from the original repository at : https://github.com/clane9/columnformers  if on colab
-
-# In[1]:
 
 
-# Clone your repository
-#!git clone https://github.com/IhabBendidi/columnformers.git
-
-
-# Install all dependencies as needed
-
-# In[2]:
-
-
-get_ipython().system('python -m pip install .')
-get_ipython().system('git checkout -b imagenet_benchmarking')
-get_ipython().system('pip3 install datasets')
-get_ipython().system('pip3 install torch-summary')
-get_ipython().system('pip3 install timm')
-
-
-# In[3]:
-
-
-get_ipython().system('nvidia-smi')
 
 
 # Import packages
@@ -51,6 +18,15 @@ import torch.optim as optim
 import os
 import tqdm
 
+from torch.utils.data import Subset
+from sklearn.model_selection import StratifiedShuffleSplit
+import numpy as np
+import os
+
+from columnformers.models.model_v1 import Columnformer, columnformer_v1_patch16_128
+from columnformers.models import create_model
+from columnformers.models.classification import ImageClassification
+from torchsummary import summary
 
 # Define gpus to use. For now only on one gpu
 
@@ -77,9 +53,6 @@ else:
 # In[7]:
 
 
-from torch.utils.data import Subset
-from sklearn.model_selection import StratifiedShuffleSplit
-import numpy as np
 
 
 # Define the type of training you will have.
@@ -110,8 +83,7 @@ test_labels_file = 'data/imagenet100/test_labels.txt'
 # In[10]:
 
 
-import os
-import numpy as np
+
 
 # Function to load or extract labels
 def load_or_extract_labels(dataset, labels_file):
@@ -233,10 +205,6 @@ elif training_type == "full" :
 # In[16]:
 
 
-from columnformers.models.model_v1 import Columnformer, columnformer_v1_patch16_128
-from columnformers.models import create_model
-from columnformers.models.classification import ImageClassification
-
 
 # In[17]:
 
@@ -269,8 +237,8 @@ optimizer = optim.Adam(model.parameters(), lr=0.0001)
 # In[20]:
 
 
-from torchsummary import summary
-summary(model)
+
+print(summary(model))
 
 
 # Training the model for 100 epochs
