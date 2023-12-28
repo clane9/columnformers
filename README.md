@@ -80,8 +80,8 @@ Effectively, the geometry of the sheet constrains how information can flow throu
 
 - [x] Initial model implementation ([`model_v1.py`](columnformers/models/model_v1.py))
 - [x] Get benchmark image classification dataset ([ImageNet-100](https://huggingface.co/datasets/clane9/imagenet-100))
-- [ ] Implement image classification train/eval pipelines
-- [ ] Get baseline performance.
+- [x] Implement image classification train/eval pipelines ([`benchmark.ipynb`](notebooks/imagenet-100_benchmark.ipynb)) or ([colab](https://colab.research.google.com/github/IhabBendidi/columnformers/blob/imagenet_benchmarking/notebooks/imagenet-100_benchmark.ipynb))
+- [x] Get baseline performance (done[here](RESULTS.md))
 - [ ] Iterate to understand and improve performance
 
 ### Longer-term
