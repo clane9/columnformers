@@ -39,6 +39,10 @@ DATASETS_REGISTRY = {
 }
 
 
+def list_datasets() -> List[str]:
+    return list(DATASETS_REGISTRY.keys())
+
+
 def create_dataset(
     dataset_name: str,
     input_size: int = 128,

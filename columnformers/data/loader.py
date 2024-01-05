@@ -6,8 +6,6 @@ import torch
 from torch.utils.data import DataLoader, Dataset, RandomSampler
 from torch.utils.data.distributed import DistributedSampler
 
-DEFAULT_DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
 
 class Prefetcher:
     """
@@ -20,9 +18,11 @@ class Prefetcher:
     """
 
     def __init__(self, loader: DataLoader, device: Optional[torch.device] = None):
+        if device is None:
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.loader = loader
-        self.device = DEFAULT_DEVICE if device is None else device
-        self.is_cuda = self.device.type == "cuda"
+        self.device = device
+        self.is_cuda = device.type == "cuda"
 
     def __iter__(self) -> Generator[Dict[str, torch.Tensor], None, None]:
         batch: Optional[Dict[str, torch.Tensor]] = None
