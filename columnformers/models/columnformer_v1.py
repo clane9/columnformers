@@ -5,6 +5,7 @@ References:
     timm/vision_transformer
 """
 
+import logging
 from typing import Callable, Optional, Tuple, Union
 
 import torch
@@ -228,7 +229,6 @@ class Columnformer(nn.Module):
     """
 
     dist: torch.Tensor
-    scale_dist: torch.Tensor
 
     def __init__(
         self,
@@ -236,9 +236,8 @@ class Columnformer(nn.Module):
         embed_dim: int,
         depth: int = 12,
         inner_dim: int = 64,
-        attn_drop: float = 0.0,
-        proj_drop: float = 0.0,
-        act_layer: Layer = nn.GELU,
+        attn_drop_rate: float = 0.0,
+        proj_drop_rate: float = 0.0,
         skip_attn: bool = False,
         attn_bias_sigma: float = 2.0,
         attn_bias_min: Optional[float] = -8.0,
@@ -255,14 +254,12 @@ class Columnformer(nn.Module):
             seq_len=self.seq_len,
             dim=embed_dim,
             inner_dim=inner_dim,
-            attn_drop=attn_drop,
-            proj_drop=proj_drop,
-            act_layer=act_layer,
+            attn_drop=attn_drop_rate,
+            proj_drop=proj_drop_rate,
             skip_attn=skip_attn,
         )
 
-        self.register_buffer("dist", dist)
-        self.register_buffer("scale_dist", dist / dist.max())
+        self.register_buffer("dist", dist / dist.max())
         self.init_weights()
 
     def init_weights(self):
@@ -284,7 +281,7 @@ class Columnformer(nn.Module):
         return x, attn
 
     def wiring_cost(self, attn: torch.Tensor):
-        return (attn * self.scale_dist).sum(dim=(-2, -1)).mean()
+        return (attn * self.dist).sum(dim=(-2, -1)).mean()
 
     def extra_repr(self) -> str:
         return (
@@ -294,7 +291,32 @@ class Columnformer(nn.Module):
 
 
 @register_model
-def columnformer_v1_patch16_128(**kwargs) -> Columnformer:
-    embedding = multilayer_embedding([8, 12, 16], offset=2.0)
+def columnformer_multilayer_v1(
+    layer_widths: Tuple[int, ...] = (8, 12, 16),
+    embed_dim: int = 384,
+    depth: int = 6,
+    inner_dim: int = 64,
+    attn_drop_rate: float = 0.0,
+    proj_drop_rate: float = 0.0,
+    skip_attn: bool = False,
+    attn_bias_sigma: float = 2.0,
+    attn_bias_min: Optional[float] = -8.0,
+    **kwargs,
+) -> Columnformer:
+    if kwargs:
+        logging.warning("Extra unused kwargs: %s", kwargs)
+
+    embedding = multilayer_embedding(layer_widths)
     dist = torch.cdist(embedding, embedding)
-    return Columnformer(dist=dist, embed_dim=384, depth=6, inner_dim=64, **kwargs)
+    model = Columnformer(
+        dist=dist,
+        embed_dim=embed_dim,
+        depth=depth,
+        inner_dim=inner_dim,
+        attn_drop_rate=attn_drop_rate,
+        proj_drop_rate=proj_drop_rate,
+        skip_attn=skip_attn,
+        attn_bias_sigma=attn_bias_sigma,
+        attn_bias_min=attn_bias_min,
+    )
+    return model

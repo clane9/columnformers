@@ -5,8 +5,7 @@ import torch
 from fvcore.nn import FlopCountAnalysis
 
 from columnformers.models import create_model
-from columnformers.models.classification import ImageClassification
-from columnformers.models.typing import Columnformer
+from columnformers.models.classification import VisionColumnformer
 
 
 @pytest.mark.parametrize("global_pool", ["avg", "spatial"])
@@ -17,13 +16,8 @@ def test_model(global_pool: str):
         "label": torch.zeros(1, dtype=torch.int64),
     }
 
-    encoder: Columnformer = create_model("columnformer_v1_patch16_128")
-    model = ImageClassification(
-        encoder=encoder,
-        img_size=128,
-        patch_size=16,
-        output_len=256,
-        num_classes=100,
+    model: VisionColumnformer = create_model(
+        "vision_columnformer_multilayer_patch16_128",
         global_pool=global_pool,
     )
     logging.info("Model:\n%s", model)

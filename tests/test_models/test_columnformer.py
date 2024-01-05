@@ -4,12 +4,17 @@ import pytest
 import torch
 from fvcore.nn import FlopCountAnalysis
 
-from columnformers.models.model_v1 import Columnformer, columnformer_v1_patch16_128
+from columnformers.models import create_model
+from columnformers.models.typing import Columnformer
 
 
-def test_model():
+@pytest.mark.parametrize(
+    "model_name",
+    ["columnformer_multilayer_v1"],
+)
+def test_model(model_name: str):
     torch.manual_seed(42)
-    model: Columnformer = columnformer_v1_patch16_128()
+    model: Columnformer = create_model(model_name)
     logging.info("Model:\n%s", model)
 
     x = torch.randn(1, model.seq_len, model.embed_dim)

@@ -31,7 +31,7 @@ We think the architecture is interesting because of two key properties:
 
 ## Architecture details
 
-See [`model_v1.py`](columnformers/models/model_v1.py) for the implementation of our initial model. In short, the model "sheet" is just a transformer block but with untied weights across the sequence. Each "column" in the sheet consists of an Attention and MLP module preceded by LayerNorm. The Attention module handles communication between columns, while the MLP does within-column computation.
+See [`columnformer_v1.py`](columnformers/models/columnformer_v1.py) for the implementation of our initial model. In short, the model "sheet" is just a transformer block but with untied weights across the sequence. Each "column" in the sheet consists of an Attention and MLP module preceded by LayerNorm. The Attention module handles communication between columns, while the MLP does within-column computation.
 
 To save parameters, we make a few changes to the Attention and MLP:
   - We use a single attention head
@@ -78,10 +78,10 @@ Effectively, the geometry of the sheet constrains how information can flow throu
 
 ### Short-term
 
-- [x] Initial model implementation ([`model_v1.py`](columnformers/models/model_v1.py))
+- [x] Initial model implementation ([`columnformer_v1.py`](columnformers/models/columnformer_v1.py))
 - [x] Get benchmark image classification dataset ([ImageNet-100](https://huggingface.co/datasets/clane9/imagenet-100))
 - [x] Implement image classification train/eval pipelines ([`benchmark.ipynb`](notebooks/imagenet-100_benchmark.ipynb)) or ([colab](https://colab.research.google.com/github/IhabBendidi/columnformers/blob/imagenet_benchmarking/notebooks/imagenet-100_benchmark.ipynb))
-- [x] Get baseline performance (done[here](RESULTS.md))
+- [x] Get baseline performance ([`RESULTS.md`](RESULTS.md))
 - [ ] Iterate to understand and improve performance
 
 ### Longer-term
