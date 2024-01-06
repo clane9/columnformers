@@ -18,10 +18,10 @@ class Columnformer(nn.Module):
 
     def forward(
         self, x: torch.Tensor, depth: Optional[int] = None
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         """
-        Forward pass for depth steps. Returns output features (B, N, C) and attention
-        matrices (B, N, N).
+        Forward pass for depth steps. Returns output features (B, N, C) and forward pass
+        state dict.
         """
         raise NotImplementedError
 
@@ -32,13 +32,13 @@ class Columnformer(nn.Module):
         raise NotImplementedError
 
 
-class TaskModel(nn.Module):
+class Task(nn.Module):
     """
-    Abstract task model interface
+    Abstract task interface.
     """
 
     def forward(
-        self, batch: Dict[str, torch.Tensor]
+        self, model: nn.Module, batch: Dict[str, torch.Tensor]
     ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         """
         Compute model forward pass and loss. Returns the loss tensor and a state dict.

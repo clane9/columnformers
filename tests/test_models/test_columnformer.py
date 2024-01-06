@@ -5,7 +5,7 @@ import torch
 from fvcore.nn import FlopCountAnalysis
 
 from columnformers.models import create_model
-from columnformers.models.typing import Columnformer
+from columnformers.typing import Columnformer
 
 
 @pytest.mark.parametrize(
@@ -18,7 +18,8 @@ def test_model(model_name: str):
     logging.info("Model:\n%s", model)
 
     x = torch.randn(1, model.seq_len, model.embed_dim)
-    output, attn = model.forward(x)
+    output, state = model.forward(x)
+    attn = state["attn"]
     logging.info("Output: %s, Attention: %s", output.shape, attn.shape)
 
     cost = model.wiring_cost(attn)

@@ -6,7 +6,7 @@ References:
 """
 
 import logging
-from typing import Callable, Optional, Tuple, Union
+from typing import Callable, Dict, Optional, Tuple, Union
 
 import torch
 import torch.nn.functional as F
@@ -271,14 +271,27 @@ class Columnformer(nn.Module):
 
     def forward(
         self, x: torch.Tensor, depth: Optional[int] = None
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         depth = depth or self.depth
+
         attn = None
+        features = []
+        attns = []
         for _ in range(depth):
             x, step_attn = self.sheet(x)
             attn = step_attn if attn is None else attn + step_attn
+            features.append(x)
+            attns.append(step_attn)
         attn = attn / depth
-        return x, attn
+        features = torch.stack(features, dim=1)
+        attns = torch.stack(attns, dim=1)
+
+        state = {
+            "attn": attn,
+            "features": features,
+            "attns": attns,
+        }
+        return x, state
 
     def wiring_cost(self, attn: torch.Tensor):
         return (attn * self.dist).sum(dim=(-2, -1)).mean()
