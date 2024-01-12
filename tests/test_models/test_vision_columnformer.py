@@ -14,7 +14,7 @@ def test_model(global_pool: str):
     images = torch.randn(1, 3, 128, 128)
 
     model: VisionColumnformer = create_model(
-        "vision_columnformer_multilayer_patch16_128",
+        "vision_columnformer_patch16_128",
         global_pool=global_pool,
     )
     logging.info("Model:\n%s", model)

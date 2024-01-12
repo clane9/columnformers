@@ -48,7 +48,7 @@ def register_figure(name_or_func: Union[Optional[str], Callable] = None):
     return _decorator
 
 
-def create_figure(name: str, **kwargs) -> Metric:
+def create_figure(name: str, **kwargs) -> Figure:
     if name not in _FIGURES:
         raise ValueError(f"Figure {name} not registered")
     fig = _FIGURES[name](**kwargs)

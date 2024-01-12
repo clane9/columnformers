@@ -8,10 +8,7 @@ from columnformers.models import create_model
 from columnformers.typing import Columnformer
 
 
-@pytest.mark.parametrize(
-    "model_name",
-    ["columnformer_multilayer_v1"],
-)
+@pytest.mark.parametrize("model_name", ["columnformer_v1"])
 def test_model(model_name: str):
     torch.manual_seed(42)
     model: Columnformer = create_model(model_name)

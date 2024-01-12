@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict, List, Union
+from typing import Any, Callable, Dict, List, Optional, Union
 
 import torch
 from datasets import DatasetDict, load_dataset
@@ -48,7 +48,7 @@ def create_dataset(
     input_size: int = 128,
     min_scale: float = 0.4,
     hflip: float = 0.5,
-    color_jitter: float = 0.4,
+    color_jitter: Optional[float] = 0.4,
     interpolation: str = "bicubic",
     keep_in_memory: bool = False,
 ) -> DatasetDict:
@@ -60,7 +60,7 @@ def create_dataset(
             is_training=split == "train",
             scale=(min_scale, 1.0),
             hflip=hflip,
-            color_jitter=color_jitter,
+            color_jitter=None if color_jitter == 0 else color_jitter,
             interpolation=interpolation,
         )
         transform = _get_batch_transform(image_transform)

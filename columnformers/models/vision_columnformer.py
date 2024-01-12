@@ -133,7 +133,7 @@ class SpatialPool(nn.Module):
 
 
 @register_model
-def vision_columnformer_multilayer_patch16_128(
+def vision_columnformer_patch16_128(
     version: str = "v1",
     num_classes: int = 100,
     global_pool: Literal["", "avg", "spatial"] = "avg",
@@ -142,7 +142,7 @@ def vision_columnformer_multilayer_patch16_128(
     **kwargs,
 ):
     # prepend 8x8 input columns
-    layer_widths = (8,) + layer_widths
+    layer_widths = (8,) + tuple(layer_widths)
     # output read out from last layer
     output_len = layer_widths[-1] ** 2
 

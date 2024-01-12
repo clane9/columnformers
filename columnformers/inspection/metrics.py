@@ -6,7 +6,7 @@ from timm.utils.metrics import accuracy
 from .registry import register_metric
 
 
-@register_metric("attention_entropy")
+@register_metric("attn_entropy")
 class AttentionEntropy:
     def __call__(self, state: Dict[str, torch.Tensor]):
         attn = state.get("attn")

@@ -304,7 +304,7 @@ class Columnformer(nn.Module):
 
 
 @register_model
-def columnformer_multilayer_v1(
+def columnformer_v1(
     layer_widths: Tuple[int, ...] = (8, 12, 16),
     embed_dim: int = 384,
     depth: int = 6,
