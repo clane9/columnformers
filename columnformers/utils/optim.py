@@ -5,8 +5,9 @@ Optimization utils.
 import fnmatch
 import logging
 import math
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple, Union
+from typing import Callable, List, Optional, Tuple, Union
 
 import torch
 from torch import nn
@@ -24,7 +25,7 @@ def backward_step(
     scaler: Optional[GradScaler] = None,
     need_update: bool = True,
     max_grad_norm: Optional[float] = 1.0,
-) -> float:
+):
     """
     Compute backward and optimization step with optional gradient clipping and loss
     scaling.
@@ -44,9 +45,8 @@ def backward_step(
             optimizer.step()
         optimizer.zero_grad()
     else:
-        lr = total_norm = None
-
-    return {"lr": lr, "total_norm": total_norm}
+        total_norm = None
+    return total_norm
 
 
 def update_lr_(optimizer: Optimizer, lr: float):
@@ -70,70 +70,8 @@ def clip_grad_(
     return total_norm
 
 
-class OptimizationStep:
-    def __init__(
-        self,
-        lr_schedule: Callable[[int], float],
-        max_grad_norm: float = 1.0,
-    ):
-        self.lr_schedule = lr_schedule
-        self.max_grad_norm = max_grad_norm
-
-    def step(
-        self,
-        step: int,
-        loss: torch.Tensor,
-        optimizer: Optimizer,
-        scaler: Optional[GradScaler] = None,
-        need_update: bool = True,
-    ) -> Dict[str, float]:
-        if scaler is not None:
-            scaler.scale(loss).backward()
-        else:
-            loss.backward()
-
-        if need_update:
-            lr = self.lr_schedule(step)
-            self._update_lr(optimizer, lr)
-            total_norm = self._clip_grad(optimizer, scaler)
-
-            if scaler is not None:
-                scaler.step(optimizer)
-                scaler.update()
-            else:
-                optimizer.step()
-            optimizer.zero_grad()
-        else:
-            lr = total_norm = None
-
-        return {"lr": lr, "total_norm": total_norm}
-
-    def _update_lr(self, optimizer: Optimizer, lr: float):
-        # update lr in place
-        for param_group in optimizer.param_groups:
-            param_group["lr"] = lr
-
-    def _clip_grad(self, optimizer: Optimizer, scaler: Optional[GradScaler] = None):
-        # clip grads by norm in place
-        if scaler is not None:
-            # unscale the gradients of optimizer's assigned params in-place
-            scaler.unscale_(optimizer)
-
-        params = [p for group in optimizer.param_groups for p in group["params"]]
-        total_norm = clip_grad_norm_(params, max_norm=self.max_grad_norm).item()
-        return total_norm
-
-
-def cosine_lr_schedule(
-    step: int,
-    *,
-    base_lr: float,
-    total_steps: int,
-    do_warmup: bool = True,
-    do_decay: bool = True,
-    warmup_fraction: float = 0.1,
-    min_lr_fraction: float = 0.05,
-):
+@dataclass
+class CosineDecaySchedule:
     """
     Get learning rate for current step according to a linear warmup + cosine decay
     schedule.
@@ -141,20 +79,30 @@ def cosine_lr_schedule(
     Reference:
         https://github.com/karpathy/nanoGPT
     """
-    warmup_steps = int(warmup_fraction * total_steps)
-    min_lr = min_lr_fraction * base_lr
 
-    # linear warmup
-    if do_warmup and step < warmup_steps:
-        lr = min_lr + (step / warmup_steps) * (base_lr - min_lr)
-    # cosine decay
-    elif do_decay:
-        decay_ratio = min((step - warmup_steps) / (total_steps - warmup_steps), 1.0)
-        coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio))
-        lr = min_lr + coeff * (base_lr - min_lr)
-    else:
-        lr = base_lr
-    return lr
+    base_lr: float
+    total_steps: int
+    do_decay: bool = True
+    warmup_fraction: float = 0.1
+    min_lr_fraction: float = 0.05
+
+    def __call__(self, step: int) -> float:
+        warmup_steps = int(self.warmup_fraction * self.total_steps)
+        min_lr = self.min_lr_fraction * self.base_lr
+
+        # linear warmup
+        if step < warmup_steps:
+            lr = min_lr + (step / warmup_steps) * (self.base_lr - min_lr)
+        # cosine decay
+        elif self.do_decay:
+            decay_ratio = min(
+                (step - warmup_steps) / (self.total_steps - warmup_steps), 1.0
+            )
+            coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio))
+            lr = min_lr + coeff * (self.base_lr - min_lr)
+        else:
+            lr = self.base_lr
+        return lr
 
 
 def create_optimizer(
@@ -239,6 +187,7 @@ def load_checkpoint(
     model_state = {
         k.removeprefix("_orig_mod.module."): v for k, v in state["model"].items()
     }
+
     bad_keys = model.load_state_dict(model_state, strict=strict)
     if bad_keys.missing_keys:
         logging.warning("Missing checkpoint keys:\n%s", bad_keys.missing_keys)
@@ -276,6 +225,7 @@ def save_checkpoint(
         "model": model.state_dict(),
         "optimizer": optimizer.state_dict(),
     }
+
     ckpt_dir = Path(out_dir) / "checkpoints"
     ckpt_path = ckpt_dir / f"ckpt-{epoch:04d}.pt"
     ckpt_path.parent.mkdir(exist_ok=True)

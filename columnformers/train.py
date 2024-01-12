@@ -153,7 +153,7 @@ def main(args: Args):
     random_seed(args.seed)
 
     # Device and distributed training setup
-    clust = ut.Cluster(args.cuda)
+    clust = ut.ClusterEnv(args.cuda)
     if clust.ddp:
         init_process_group(backend="nccl")
         torch.cuda.set_device(clust.device)
@@ -287,8 +287,7 @@ def main(args: Args):
         betas=(args.beta1, args.beta2),
     )
     epoch_steps = math.ceil(len(loaders["train"]) / args.grad_accum_steps)
-    lr_schedule = partial(
-        ut.cosine_lr_schedule,
+    lr_schedule = ut.CosineDecaySchedule(
         base_lr=args.lr,
         total_steps=args.epochs * epoch_steps,
         do_decay=args.decay_lr,
@@ -404,7 +403,7 @@ def train_one_epoch(
     train_loader: DataLoader,
     optimizer: torch.optim.Optimizer,
     lr_schedule: ut.LRSchedule,
-    clust: ut.Cluster,
+    clust: ut.ClusterEnv,
     autocast: Callable,
     scaler: Optional[GradScaler],
     figure_builders: Dict[str, Figure],
@@ -484,6 +483,7 @@ def train_one_epoch(
             or is_last_batch
             or args.debug
         ):
+            # TODO: add scalar metrics in state
             metrics = {name: func(state) for name, func in metric_builders.items()}
 
             tput = (clust.world_size * args.batch_size) / step_time_m.avg
@@ -552,7 +552,7 @@ def validate(
     model: torch.nn.Module,
     task: Task,
     val_loader: DataLoader,
-    clust: ut.Cluster,
+    clust: ut.ClusterEnv,
     figure_builders: Dict[str, Figure],
     metric_builders: Dict[str, Metric],
     out_dir: Path,

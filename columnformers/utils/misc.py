@@ -16,7 +16,7 @@ import torch
 from .slug import random_slug
 
 
-class Cluster:
+class ClusterEnv:
     """
     Holds information about the current cluster environment.
     """
@@ -99,11 +99,6 @@ def setup_logging(
         file_handler.setFormatter(formatter)
         file_handler.setLevel(level)
         logger.addHandler(file_handler)
-
-    # Redefining the root logger is not strictly best practice.
-    # https://stackoverflow.com/a/7430495
-    # But I want the convenience to just call e.g. `logging.info()`.
-    logging.root = logger  # type: ignore
 
 
 def get_sha():
