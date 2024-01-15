@@ -3,13 +3,14 @@ Misc utils. Copied/hacked together from various sources.
 """
 
 import hashlib
+import inspect
 import logging
 import os
 import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Any, Callable, Dict, Optional
 
 import torch
 
@@ -141,3 +142,17 @@ def get_exp_name(prefix: str, seed: int):
         name = name + "-" + prefix
     name = name + "-" + random_slug(seed=seed)
     return name
+
+
+def filter_kwargs(func: Callable, kwargs: Dict[str, Any]):
+    """
+    Filter unused extra kwargs. Returns filtered kwargs and a list of extra args.
+    """
+    allowed_args = set(inspect.getfullargspec(func).args)
+    extra_args = []
+    kwargs = kwargs.copy()
+    for k in list(kwargs):
+        if k not in allowed_args:
+            kwargs.pop(k)
+            extra_args.append(k)
+    return kwargs, extra_args

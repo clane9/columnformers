@@ -3,12 +3,10 @@ from typing import Dict, Optional, Tuple, Union
 
 import torch
 import torch.nn.functional as F
-from timm.layers import trunc_normal_
 from timm.layers.helpers import to_2tuple, to_3tuple
 from torch import nn
 
 from .layers import Layer, UntiedLayerNorm, UntiedLinear
-from .registry import register_model
 
 
 class Attention(nn.Module):
@@ -212,6 +210,7 @@ class Columnformer(nn.Module):
         act_layer: Layer = nn.GELU,
     ):
         super().__init__()
+        self.embed_dim = embed_dim
         self.depth = depth
         self.recurrent = recurrent
         self.seq_len = seq_len
@@ -236,8 +235,6 @@ class Columnformer(nn.Module):
             for _ in range(num_blocks)
         )
 
-        self.apply(init_weights)
-
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         if self.seq_len and x.shape[1] < self.seq_len:
             x = F.pad(x, (0, 0, 0, self.seq_len - x.shape[1]))
@@ -248,55 +245,11 @@ class Columnformer(nn.Module):
             x, attn = self.blocks[0 if self.recurrent else step](x)
             features.append(x)
             attns.append(attn)
+        features = torch.stack(features)
+        attns = torch.stack(attns)
 
         state = {"features": features, "attns": attns}
         return x, state
 
     def extra_repr(self) -> str:
         return f"depth={self.depth}, recurrent={self.recurrent}"
-
-
-def init_weights(module: nn.Module):
-    if isinstance(module, nn.Linear):
-        trunc_normal_(module.weight, std=0.02)
-        if module.bias is not None:
-            nn.init.zeros_(module.bias)
-    elif hasattr(module, "init_weights"):
-        module.init_weights()
-
-
-@register_model
-def transformer_tiny(**kwargs):
-    kwargs = {"num_heads": 6, **kwargs}
-    model = Columnformer(
-        embed_dim=384, depth=6, recurrent=False, untied=False, seq_len=None, **kwargs
-    )
-    return model
-
-
-@register_model
-def columnformer_ff_tiny_n64(**kwargs):
-    kwargs = {
-        "num_heads": 1,
-        "mlp_ratio": 1 / 6.0,
-        "untied": True,
-        "qk_head_dim": 64,
-        "no_vp": True,
-        **kwargs,
-    }
-    model = Columnformer(embed_dim=384, depth=6, recurrent=False, seq_len=64, **kwargs)
-    return model
-
-
-@register_model
-def columnformer_rnn_tiny_n384(**kwargs):
-    kwargs = {
-        "num_heads": 1,
-        "mlp_ratio": 1 / 6.0,
-        "untied": True,
-        "qk_head_dim": 64,
-        "no_vp": True,
-        **kwargs,
-    }
-    model = Columnformer(embed_dim=384, depth=6, recurrent=True, seq_len=384, **kwargs)
-    return model
