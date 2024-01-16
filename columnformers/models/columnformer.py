@@ -44,9 +44,9 @@ class Attention(nn.Module):
         self.num_heads = num_heads
         self.head_dim = dim // num_heads
         self.qk_head_dim = qk_head_dim or self.head_dim
-        self.scale = self.head_dim**-0.5
+        self.scale = self.qk_head_dim**-0.5
         qkv_biases = to_3tuple(qkv_bias)
-        linear_layer = partial(UntiedLinear, seq_len=seq_len) if untied else nn.Linear
+        linear_layer = partial(UntiedLinear, seq_len) if untied else nn.Linear
 
         if bias:
             self.bias = nn.Parameter(torch.zeros(seq_len, seq_len))
@@ -115,7 +115,7 @@ class Mlp(nn.Module):
         out_features = out_features or in_features
         biases = to_2tuple(bias)
         drop_probs = to_2tuple(drop)
-        linear_layer = partial(UntiedLinear, seq_len=seq_len) if untied else nn.Linear
+        linear_layer = partial(UntiedLinear, seq_len) if untied else nn.Linear
         act_layer = nn.Identity if act_layer is None else act_layer
 
         self.fc1 = linear_layer(in_features, hidden_features, bias=biases[0])
@@ -152,10 +152,8 @@ class Block(nn.Module):
     ):
         super().__init__()
         self.skip_attn = skip_attn
-        untied_attn, untied_mlp, untied_norm = to_3tuple(untied)
-        norm_layer = (
-            partial(UntiedLayerNorm, seq_len=seq_len) if untied_norm else nn.LayerNorm
-        )
+        untied_norm, untied_attn, untied_mlp = to_3tuple(untied)
+        norm_layer = partial(UntiedLayerNorm, seq_len) if untied_norm else nn.LayerNorm
 
         self.norm1 = norm_layer(dim)
         self.attn = Attention(
