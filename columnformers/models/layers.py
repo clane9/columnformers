@@ -135,5 +135,3 @@ def init_weights(module: nn.Module):
         trunc_normal_(module.weight, std=0.02)
         if module.bias is not None:
             nn.init.zeros_(module.bias)
-    elif hasattr(module, "init_weights"):
-        module.init_weights()

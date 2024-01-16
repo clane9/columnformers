@@ -56,7 +56,7 @@ class VisionColumnformer(nn.Module):
             self.pool = SpatialPool(self.output_len, self.num_classes)
         else:
             self.register_module("pool", None)
-        self.head_drop = nn.Dropout(drop_rate) if drop_rate > 0 else nn.Identity()
+        self.head_drop = nn.Dropout(drop_rate)
         if num_classes:
             self.head = nn.Linear(self.embed_dim, num_classes)
         else:
@@ -79,7 +79,7 @@ class VisionColumnformer(nn.Module):
         return x, state
 
     def forward_head(self, x: torch.Tensor) -> torch.Tensor:
-        x = x[: -self.output_len :]
+        x = x[:, -self.output_len :]
         if self.global_pool == "spatial":
             x = self.pool(x)  # B, K, C
         elif self.global_pool == "avg":
