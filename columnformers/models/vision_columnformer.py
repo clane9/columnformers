@@ -7,6 +7,7 @@ from torch import nn
 
 from columnformers.utils import filter_kwargs
 
+from . import geometry as G
 from .columnformer import Columnformer
 from .layers import SpatialPool, init_weights
 from .registry import register_model
@@ -98,12 +99,19 @@ class VisionColumnformer(nn.Module):
 
 
 def _create_vision_columnformer(
+    widths: Optional[Tuple[int, ...]] = None,
     encoder_params: Optional[Dict[str, Any]] = None,
     encoder_defaults: Optional[Dict[str, Any]] = None,
     params: Optional[Dict[str, Any]] = None,
     defaults: Optional[Dict[str, Any]] = None,
     **kwargs,
 ) -> VisionColumnformer:
+    if widths:
+        depth_offset = kwargs.pop("depth_offset", 2.0)
+        geometry = G.multilayer_geometry(widths, depth_offset=depth_offset)
+    else:
+        geometry = None
+
     encoder_kwargs, _ = filter_kwargs(Columnformer, kwargs)
     kwargs = {k: v for k, v in kwargs.items() if k not in encoder_kwargs}
     kwargs, extra_args = filter_kwargs(VisionColumnformer, kwargs)
@@ -111,7 +119,7 @@ def _create_vision_columnformer(
         logging.warning("Extra kwargs to VisionColumnformer: %s", extra_args)
 
     encoder_kwargs = {**encoder_defaults, **encoder_kwargs}
-    encoder = Columnformer(**encoder_params, **encoder_kwargs)
+    encoder = Columnformer(**encoder_params, **encoder_kwargs, geometry=geometry)
 
     kwargs = {**defaults, **kwargs}
     model = VisionColumnformer(encoder=encoder, **params, **kwargs)
@@ -125,16 +133,17 @@ def vision_transformer_tiny_patch16_128(**kwargs):
         "depth": 6,
         "recurrent": False,
         "untied": False,
-        "seq_len": None,
+        "seq_len": 64,
     }
     encoder_defaults = {"num_heads": 6}
     params = {"img_size": 128, "patch_size": 16}
     defaults = {}
     model = _create_vision_columnformer(
-        encoder_params,
-        encoder_defaults,
-        params,
-        defaults,
+        widths=(8,),
+        encoder_params=encoder_params,
+        encoder_defaults=encoder_defaults,
+        params=params,
+        defaults=defaults,
         **kwargs,
     )
     return model
@@ -152,16 +161,19 @@ def vision_columnformer_ff_tiny_patch16_128(**kwargs):
         "num_heads": 1,
         "mlp_ratio": 1 / 6.0,
         "untied": True,
+        "attn_bias": True,
         "qk_head_dim": 64,
         "no_vp": True,
+        "init_local_attn": True,
     }
     params = {"img_size": 128, "patch_size": 16}
     defaults = {}
     model = _create_vision_columnformer(
-        encoder_params,
-        encoder_defaults,
-        params,
-        defaults,
+        widths=(8,),
+        encoder_params=encoder_params,
+        encoder_defaults=encoder_defaults,
+        params=params,
+        defaults=defaults,
         **kwargs,
     )
     return model
@@ -179,16 +191,20 @@ def vision_columnformer_r_tiny_patch16_128(**kwargs):
         "num_heads": 1,
         "mlp_ratio": 1 / 6.0,
         "untied": True,
+        "skip_attn": False,
+        "attn_bias": True,
         "qk_head_dim": 64,
         "no_vp": True,
+        "init_local_attn": True,
     }
     params = {"img_size": 128, "patch_size": 16}
     defaults = {}
     model = _create_vision_columnformer(
-        encoder_params,
-        encoder_defaults,
-        params,
-        defaults,
+        widths=6 * (8,),
+        encoder_params=encoder_params,
+        encoder_defaults=encoder_defaults,
+        params=params,
+        defaults=defaults,
         **kwargs,
     )
     return model

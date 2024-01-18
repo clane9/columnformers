@@ -6,6 +6,7 @@ import torch.nn.functional as F
 from timm.layers.helpers import to_2tuple, to_3tuple
 from torch import nn
 
+from . import geometry as G
 from .layers import Layer, UntiedLayerNorm, UntiedLinear
 
 
@@ -84,6 +85,10 @@ class Attention(nn.Module):
         x = self.proj(x)
         x = self.proj_drop(x)
         return x, attn
+
+    def init_bias(self, bias: torch.Tensor):
+        assert self.bias is not None
+        self.bias.data.copy_(bias)
 
     def extra_repr(self) -> str:
         return f"bias={self.bias is not None}"
@@ -189,6 +194,8 @@ class Block(nn.Module):
 
 
 class Columnformer(nn.Module):
+    geometry: Optional[torch.Tensor]
+
     def __init__(
         self,
         embed_dim: int,
@@ -206,12 +213,27 @@ class Columnformer(nn.Module):
         attn_drop_rate: float = 0.0,
         proj_drop_rate: float = 0.0,
         act_layer: Layer = nn.GELU,
+        geometry: Optional[torch.Tensor] = None,
+        init_local_attn: bool = False,
+        local_attn_sigma: float = 2.0,
     ):
         super().__init__()
+        assert (
+            not init_local_attn or geometry is not None
+        ), "geometry required for local attention"
+        assert (
+            not init_local_attn or attn_bias
+        ), "attn_bias required for local attention"
+        if geometry is not None:
+            assert seq_len, "seq_len required for geometry"
+            assert geometry.shape == (seq_len, seq_len), "invalid geometry shape"
+
         self.embed_dim = embed_dim
         self.depth = depth
         self.recurrent = recurrent
         self.seq_len = seq_len
+        self.init_local_attn = init_local_attn
+        self.local_attn_sigma = local_attn_sigma
 
         num_blocks = 1 if recurrent else depth
         self.blocks = nn.ModuleList(
@@ -233,6 +255,12 @@ class Columnformer(nn.Module):
             for _ in range(num_blocks)
         )
 
+        self.register_buffer("geometry", geometry)
+        if init_local_attn:
+            attn_bias = G.gaussian_local_attn_bias(geometry, sigma=local_attn_sigma)
+            for block in self.blocks:
+                block.attn.init_bias(attn_bias)
+
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         if self.seq_len and x.shape[1] < self.seq_len:
             x = F.pad(x, (0, 0, 0, self.seq_len - x.shape[1]))
@@ -249,5 +277,14 @@ class Columnformer(nn.Module):
         state = {"features": features, "attns": attns}
         return x, state
 
+    def wiring_cost(self, attn: torch.Tensor) -> torch.Tensor:
+        assert self.geometry is not None, "geometry required to compute wiring cost"
+        return G.l1_wiring_cost(attn, self.geometry)
+
     def extra_repr(self) -> str:
-        return f"depth={self.depth}, recurrent={self.recurrent}"
+        return (
+            f"depth={self.depth}, recurrent={self.recurrent}, "
+            f"geometry={None if self.geometry is None else self.geometry.shape}, "
+            f"init_local_attn={self.init_local_attn}, "
+            f"local_attn_sigma={self.local_attn_sigma}"
+        )
