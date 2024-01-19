@@ -17,13 +17,13 @@ import torch
 import wandb
 import yaml
 from fvcore.nn import FlopCountAnalysis
-from hf_argparser import HfArg, HfArgumentParser
 from matplotlib import pyplot as plt
 from timm.utils import AverageMeter, random_seed, reduce_tensor
 from torch.cuda.amp import GradScaler
 from torch.distributed import destroy_process_group, init_process_group
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader
+from transformers.hf_argparser import HfArg, HfArgumentParser
 
 from columnformers import utils as ut
 from columnformers.data import create_dataset, create_loader, list_datasets
@@ -36,8 +36,7 @@ from columnformers.inspection import (
     list_metrics,
 )
 from columnformers.models import create_model, list_models
-from columnformers.tasks import ImageClassification
-from columnformers.typing import Task
+from columnformers.tasks import ImageClassification, Task
 
 np.set_printoptions(precision=3)
 
