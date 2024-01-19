@@ -5,16 +5,18 @@ import shutil
 import sys
 import time
 from argparse import Namespace
+from collections import defaultdict
 from contextlib import suppress
 from dataclasses import asdict, dataclass
 from functools import partial
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional
 
 import numpy as np
 import torch
 import wandb
 import yaml
+from fvcore.nn import FlopCountAnalysis
 from hf_argparser import HfArg, HfArgumentParser
 from matplotlib import pyplot as plt
 from timm.utils import AverageMeter, random_seed, reduce_tensor
@@ -45,19 +47,37 @@ class Args:
     project: str = HfArg(default="columnformers", help="project name")
     # Model
     model: str = HfArg(
-        default="vision_columnformer_patch16_128",
+        default="vision_columnformer_r_tiny_patch16_128",
         help=f"model ({', '.join(list_models())})",
     )
-    version: str = HfArg(default="v1", help="model architecture version")
-    layer_widths: List[int] = HfArg(
-        aliases=["--widths"],
-        default_factory=lambda: [12, 16],
-        help="hidden layer widths",
+    num_heads: Optional[int] = HfArg(
+        aliases=["--nh"], default=None, help="number of attention heads"
     )
-    embed_dim: int = HfArg(aliases=["--dim"], default=384, help="embed dim")
-    depth: int = HfArg(default=6, help="model depth")
+    mlp_ratio: Optional[float] = HfArg(
+        aliases=["--mlpr"], default=None, help="mlp ratio"
+    )
+    untied: Optional[str] = HfArg(
+        default=None,
+        help="untied mode coded as str of 1 or 3 comma separated values for norm, attn, "
+        "mlp. e.g. '1' or '1,0,0'",
+    )
+    attn_bias: Optional[bool] = HfArg(
+        aliases=["--attnb"], default=None, help="use learned attention bias"
+    )
+    qk_head_dim: Optional[int] = HfArg(
+        aliases=["--qkd"], default=None, help="query and key head dimension"
+    )
+    no_vp: Optional[bool] = HfArg(
+        aliases=["--novp"], default=None, help="don't use value and projection"
+    )
+    init_local_attn: Optional[bool] = HfArg(
+        aliases=["--initloc"], default=None, help="initialize with local attention bias"
+    )
     global_pool: Optional[str] = HfArg(
         aliases=["--pool"], default="avg", help="global pooling mode (avg, spatial)"
+    )
+    pos_embed: Optional[bool] = HfArg(
+        aliases=["--pos"], default=None, help="use position embedding"
     )
     drop_rate: float = HfArg(aliases=["--dr"], default=0.0, help="head dropout rate")
     proj_drop_rate: float = HfArg(
@@ -85,11 +105,11 @@ class Args:
     workers: int = HfArg(aliases=["-j"], default=4, help="data loading workers")
     prefetch: bool = HfArg(default=True, help="use cuda prefetching")
     # Optimization
-    epochs: int = HfArg(default=1000, help="number of epochs")
+    epochs: int = HfArg(default=100, help="number of epochs")
     batch_size: int = HfArg(
         aliases=["--bs"], default=256, help="batch size per replica"
     )
-    lr: float = HfArg(default=3e-4, help="learning rate")
+    lr: float = HfArg(default=6e-4, help="learning rate")
     decay_lr: bool = HfArg(default=True, help="decay learning rate")
     warmup_fraction: float = HfArg(default=0.1, help="fraction of warmup steps")
     min_lr_fraction: float = HfArg(
@@ -127,11 +147,10 @@ class Args:
     )
     cuda: bool = HfArg(default=True, help="use cuda")
     amp: bool = HfArg(default=False, help="use AMP")
-    dtype: str = HfArg(default="bfloat16", help="AMP dtype (float16, bfloat16)")
+    amp_dtype: str = HfArg(default="float16", help="AMP dtype (float16, bfloat16)")
     compile: bool = HfArg(default=False, help="use torch compile")
     overwrite: bool = HfArg(default=False, help="overwrite pre-existing results")
     wandb: bool = HfArg(default=False, help="log to wandb")
-    sweep: bool = HfArg(default=False, help="whether we're in a wandb sweep")
     log_interval: int = HfArg(
         aliases=["--logint"], default=10, help="log every n steps"
     )
@@ -166,8 +185,6 @@ def main(args: Args):
     else:
         name = args.name
     out_dir = Path(args.out_dir) / args.project
-    if args.sweep:
-        out_dir = out_dir / "sweeps"
     out_dir = out_dir / name
 
     # Creating output dir
@@ -189,7 +206,7 @@ def main(args: Args):
     ut.setup_logging(path=log_path, stdout=clust.master_process, rank=clust.rank)
 
     # Wandb setup
-    if clust.master_process and args.wandb and not args.sweep:
+    if clust.master_process and args.wandb:
         wandb.init(project=args.project, name=name, config=args.__dict__)
 
     # Initial logging
@@ -209,15 +226,15 @@ def main(args: Args):
     # AMP setup
     if args.amp:
         logging.info(
-            f"Running in mixed precision ({args.dtype}) with native PyTorch AMP"
+            f"Running in mixed precision ({args.amp_dtype}) with native PyTorch AMP"
         )
 
-        amp_dtype = torch.float16 if args.dtype == "float16" else torch.bfloat16
+        amp_dtype = torch.float16 if args.amp_dtype == "float16" else torch.bfloat16
         autocast = partial(
             torch.autocast, device_type=clust.device.type, dtype=amp_dtype
         )
         # bfloat16 does not need loss scaler, following timm
-        scaler = GradScaler() if args.dtype == "float16" else None
+        scaler = GradScaler() if args.amp_dtype == "float16" else None
     else:
         autocast = suppress
         scaler = None
@@ -240,7 +257,7 @@ def main(args: Args):
     for split, ds in dataset.items():
         loaders[split] = create_loader(
             ds,
-            shuffle=split == "train",
+            shuffle=True,
             batch_size=args.batch_size,
             drop_last=True,
             num_workers=args.workers,
@@ -254,11 +271,14 @@ def main(args: Args):
     logging.info("Creating model: %s", args.model)
     model = create_model(
         args.model,
-        version=args.version,
+        num_heads=args.num_heads,
+        mlp_ratio=args.mlp_ratio,
+        untied=parse_untied(args.untied),
+        attn_bias=args.attn_bias,
+        qk_head_dim=args.qk_head_dim,
+        no_vp=args.no_vp,
+        init_local_attn=args.init_local_attn,
         num_classes=num_classes,
-        layer_widths=args.layer_widths,
-        embed_dim=args.embed_dim,
-        depth=args.depth,
         global_pool=args.global_pool,
         drop_rate=args.drop_rate,
         proj_drop_rate=args.proj_drop_rate,
@@ -267,14 +287,14 @@ def main(args: Args):
     model: torch.nn.Module = model.to(clust.device)
     logging.info("%s", model)
 
-    logging.info(
-        "Params (trainable): %.0fM (%.0fM)",
-        sum(p.numel() for p in model.parameters()) / 1e6,
-        sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e6,
-    )
-
     task = ImageClassification(wiring_lambd=args.wiring_lambd)
     logging.info("Task: %s", task)
+
+    param_count = sum(p.numel() for p in model.parameters())
+    flop_count = get_flops(model, loaders["validation"], clust)
+    logging.info("Params: %.0fM, FLOPs: %.0fM", param_count / 1e6, flop_count / 1e6)
+    if clust.master_process and args.wandb:
+        wandb.log({"param_count": param_count, "flop_count": flop_count}, step=0)
 
     # Optimizer
     logging.info("Creating optimizer")
@@ -358,6 +378,8 @@ def main(args: Args):
             task=task,
             val_loader=loaders["validation"],
             clust=clust,
+            figure_builders=figure_builders,
+            metric_builders=metric_builders,
             out_dir=out_dir,
         )
 
@@ -439,7 +461,7 @@ def train_one_epoch(
         if batch_idx >= last_batch_idx_to_accum:
             accum_steps = last_accum_steps
 
-        batch = {k: to_device(v, clust.device) for k, v in batch.items()}
+        batch = to_device(batch, clust.device)
         batch_size = get_batch_size(batch)
         data_time = time.monotonic() - end
 
@@ -483,8 +505,8 @@ def train_one_epoch(
             or is_last_batch
             or args.debug
         ):
-            # TODO: add scalar metrics in state
             metrics = {name: func(state) for name, func in metric_builders.items()}
+            update_metrics(metrics, state)
 
             tput = (clust.world_size * args.batch_size) / step_time_m.avg
             if clust.use_cuda:
@@ -535,6 +557,7 @@ def train_one_epoch(
                 path = out_dir / "figures" / name / f"{name}-{epoch:04d}-train.png"
                 paths[name] = path
 
+                path.parent.mkdir(parents=True, exist_ok=True)
                 fig.savefig(path, bbox_inches="tight")
                 plt.close(fig)
 
@@ -566,7 +589,7 @@ def validate(
     data_time_m = AverageMeter()
     step_time_m = AverageMeter()
 
-    metric_ms = {name: AverageMeter() for name in metric_builders}
+    metric_ms = defaultdict(AverageMeter)
 
     save_figures = args.save_figures and (
         epoch % args.figure_interval == 0 or epoch + 1 == args.epochs or args.debug
@@ -575,7 +598,7 @@ def validate(
     epoch_batches = len(val_loader)
     end = time.monotonic()
     for batch_idx, batch in enumerate(val_loader):
-        batch = {k: to_device(v, clust.device) for k, v in batch.items()}
+        batch = to_device(batch, clust.device)
         batch_size = get_batch_size(batch)
         data_time = time.monotonic() - end
 
@@ -586,6 +609,7 @@ def validate(
             loss_item = loss.item()
 
         metrics = {name: func(state) for name, func in metric_builders.items()}
+        update_metrics(metrics, state)
 
         # end of iteration timing
         if clust.use_cuda:
@@ -659,15 +683,44 @@ def validate(
     return loss_m.avg
 
 
-def to_device(data: Union[torch.Tensor, Any], device: torch.device):
-    if isinstance(data, torch.Tensor):
-        data = data.to(device)
-    return data
+def parse_untied(untied: Optional[str]):
+    if untied is not None:
+        untied = tuple([bool(int(val) for val in untied.strip().split(","))])
+        if len(untied) == 1:
+            untied = untied[0]
+    return untied
+
+
+@torch.no_grad()
+def get_flops(model: torch.nn.Module, loader: DataLoader, clust: ut.ClusterEnv):
+    model.eval()
+    batch = next(iter(loader))
+    x = batch["image"][:1].to(clust.device)
+    flops = FlopCountAnalysis(model, x)
+    return flops.total()
+
+
+def to_device(batch: Dict[str, torch.Tensor], device: torch.device):
+    batch = batch.copy()
+    for k, v in batch.items():
+        if isinstance(v, torch.Tensor):
+            batch[k] = v.to(device)
+    return batch
 
 
 def get_batch_size(batch: Dict[str, torch.Tensor]):
     key = next(iter(batch))
     return len(batch[key])
+
+
+def update_metrics(metrics: Dict[str, Any], state: Dict[str, torch.Tensor]):
+    for k, v in state.items():
+        if is_scalar(v):
+            metrics[k] = v.detach().item()
+
+
+def is_scalar(value: torch.Tensor):
+    return len(value.shape) == 0
 
 
 if __name__ == "__main__":

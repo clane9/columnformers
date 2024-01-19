@@ -7,8 +7,8 @@ from torch import nn
 
 from columnformers.utils import filter_kwargs
 
-from . import geometry as G
 from .columnformer import Columnformer
+from .geometry import multilayer_geometry
 from .layers import SpatialPool, init_weights
 from .registry import register_model
 
@@ -62,12 +62,12 @@ class VisionColumnformer(nn.Module):
             self.head = nn.Linear(self.embed_dim, num_classes)
         else:
             self.head = nn.Identity()
-        self.init_weights()
+
+        self.apply(init_weights)
 
     def init_weights(self):
         if self.pos_embed is not None:
             trunc_normal_(self.pos_embed, std=0.02)
-        self.apply(init_weights)
 
     def forward_features(
         self, x: torch.Tensor
@@ -97,6 +97,13 @@ class VisionColumnformer(nn.Module):
         x = self.forward_head(x)
         return x, state
 
+    @property
+    def geometry(self) -> Optional[torch.Tensor]:
+        return self.encoder.geometry
+
+    def extra_repr(self) -> str:
+        return f"pos_embed={self.pos_embed is not None}"
+
 
 def _create_vision_columnformer(
     widths: Optional[Tuple[int, ...]] = None,
@@ -106,9 +113,11 @@ def _create_vision_columnformer(
     defaults: Optional[Dict[str, Any]] = None,
     **kwargs,
 ) -> VisionColumnformer:
+    kwargs = {k: v for k, v in kwargs.items() if v is not None}
+
     if widths:
         depth_offset = kwargs.pop("depth_offset", 2.0)
-        geometry = G.multilayer_geometry(widths, depth_offset=depth_offset)
+        geometry = multilayer_geometry(widths, depth_offset=depth_offset)
     else:
         geometry = None
 
@@ -167,7 +176,7 @@ def vision_columnformer_ff_tiny_patch16_128(**kwargs):
         "init_local_attn": True,
     }
     params = {"img_size": 128, "patch_size": 16}
-    defaults = {}
+    defaults = {"pos_embed": False}
     model = _create_vision_columnformer(
         widths=(8,),
         encoder_params=encoder_params,
@@ -198,7 +207,7 @@ def vision_columnformer_r_tiny_patch16_128(**kwargs):
         "init_local_attn": True,
     }
     params = {"img_size": 128, "patch_size": 16}
-    defaults = {}
+    defaults = {"pos_embed": False}
     model = _create_vision_columnformer(
         widths=6 * (8,),
         encoder_params=encoder_params,

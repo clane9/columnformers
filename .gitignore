@@ -24,6 +24,7 @@ _version.py
 .scratch
 checkpoints
 results
+test_results
 
 # Jupyter
 .ipynb_checkpoints

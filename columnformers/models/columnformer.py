@@ -6,7 +6,6 @@ import torch.nn.functional as F
 from timm.layers.helpers import to_2tuple, to_3tuple
 from torch import nn
 
-from . import geometry as G
 from .layers import Layer, UntiedLayerNorm, UntiedLinear
 
 
@@ -198,7 +197,7 @@ class Columnformer(nn.Module):
 
     def __init__(
         self,
-        embed_dim: int,
+        embed_dim: int = 384,
         depth: int = 12,
         recurrent: bool = False,
         num_heads: int = 8,
@@ -256,8 +255,13 @@ class Columnformer(nn.Module):
         )
 
         self.register_buffer("geometry", geometry)
-        if init_local_attn:
-            attn_bias = G.gaussian_local_attn_bias(geometry, sigma=local_attn_sigma)
+        self.init_weights()
+
+    def init_weights(self):
+        if self.init_local_attn:
+            attn_bias = gaussian_local_attn_bias(
+                self.geometry, sigma=self.local_attn_sigma
+            )
             for block in self.blocks:
                 block.attn.init_bias(attn_bias)
 
@@ -277,14 +281,19 @@ class Columnformer(nn.Module):
         state = {"features": features, "attns": attns}
         return x, state
 
-    def wiring_cost(self, attn: torch.Tensor) -> torch.Tensor:
-        assert self.geometry is not None, "geometry required to compute wiring cost"
-        return G.l1_wiring_cost(attn, self.geometry)
-
     def extra_repr(self) -> str:
         return (
             f"depth={self.depth}, recurrent={self.recurrent}, "
-            f"geometry={None if self.geometry is None else self.geometry.shape}, "
+            f"geometry={None if self.geometry is None else tuple(self.geometry.shape)}, "
             f"init_local_attn={self.init_local_attn}, "
             f"local_attn_sigma={self.local_attn_sigma}"
         )
+
+
+def gaussian_local_attn_bias(
+    dist: torch.Tensor, sigma: float = 2.0, min: Optional[float] = -8.0
+):
+    attn_bias = -(dist**2) / (2 * sigma**2)
+    if min is not None:
+        attn_bias = torch.clamp(attn_bias, min=min)
+    return attn_bias

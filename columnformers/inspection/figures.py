@@ -1,43 +1,57 @@
 from typing import Dict
 
+import matplotlib
 import numpy as np
 import torch
 import torch.nn.functional as F
 from matplotlib import pyplot as plt
+from torch import nn
 
 from .registry import register_figure
 
+matplotlib.use("Agg")
 plt.rcParams["figure.dpi"] = 150
 plt.style.use("ggplot")
 
 
 @register_figure("attn_feat_corr")
-class AttentionFeatureCorrelation:
-    def __call__(self, state: Dict[str, torch.Tensor]):
-        attn = state.get("attn")
+class AttentionFeatureCorrelation(nn.Module):
+    def __init__(self, step: int = -1):
+        super().__init__()
+        self.step = step
+
+    def forward(self, state: Dict[str, torch.Tensor]):
+        attns = state.get("attns")
         features = state.get("features")
-        if attn is None or features is None:
+        if attns is None or features is None:
             return None
-        return attn_feat_corr(attn, features)
+
+        # depth, B, nh, N, N
+        attn = attns.detach()[self.step].mean(dim=1)
+        # depth, B, N, D
+        feat = features.detach()[self.step]
+        return attn_feat_corr(attn, feat)
+
+    def extra_repr(self) -> str:
+        return f"step={self.step}"
 
 
 def attn_feat_corr(
     attn: torch.Tensor,
-    features: torch.Tensor,
+    feat: torch.Tensor,
     num_examples: int = 16,
     num_col: int = 4,
     plotw: float = 3.4,
     ploth: float = 3.0,
 ):
     num_examples = min(num_examples, len(attn))
-    assert attn.ndim == features.ndim == 3
+    assert attn.ndim == feat.ndim == 3
     assert num_examples % num_col == 0
 
     attn = attn.detach()[:num_examples]
-    features = features.detach()[:num_examples]
-
-    norm_features = F.normalize(features, dim=2)
-    feat_corr = norm_features @ norm_features.transpose(1, 2)
+    feat = feat.detach()[:num_examples]
+    norm_feat = F.normalize(feat, dim=2)
+    feat_corr = norm_feat @ norm_feat.transpose(1, 2)
 
     nr = num_examples // num_col
     nc = 2 * num_col
@@ -63,8 +77,8 @@ def attn_feat_corr(
 
 
 @register_figure("image_grid")
-class ImageGrid:
-    def __call__(self, state: Dict[str, torch.Tensor]):
+class ImageGrid(nn.Module):
+    def forward(self, state: Dict[str, torch.Tensor]):
         images = state.get("image")
         if images is None:
             return None

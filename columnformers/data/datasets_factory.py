@@ -1,8 +1,10 @@
+from functools import partial
 from typing import Any, Callable, Dict, List, Optional, Union
 
+import numpy as np
 import torch
-from datasets import DatasetDict, load_dataset
-from PIL import Image
+from datasets import ClassLabel, Dataset, DatasetDict, Features, Image, load_dataset
+from PIL import Image as I
 from timm.data.transforms_factory import create_transform
 
 IMAGENET100_REPO_ID = "clane9/imagenet-100"
@@ -33,9 +35,42 @@ def micro_imagenet100(
     return dataset
 
 
+def debug100(
+    train_size: int = 256,
+    val_size: int = 256,
+    img_size: int = 128,
+    seed: int = 42,
+    keep_in_memory: bool = False,
+):
+    def generator(num_samples: int, seed: int):
+        rng = np.random.default_rng(seed)
+
+        for _ in range(num_samples):
+            img = rng.integers(256, size=(img_size, img_size, 3), dtype=np.uint8)
+            img = I.fromarray(img)
+            label = rng.integers(100)
+            yield {"image": img, "label": label}
+
+    features = Features({"image": Image(), "label": ClassLabel(num_classes=100)})
+    dataset = {
+        "train": Dataset.from_generator(
+            partial(generator, num_samples=train_size, seed=seed),
+            features=features,
+            keep_in_memory=keep_in_memory,
+        ),
+        "validation": Dataset.from_generator(
+            partial(generator, num_samples=val_size, seed=seed + 1),
+            features=features,
+            keep_in_memory=keep_in_memory,
+        ),
+    }
+    return DatasetDict(dataset)
+
+
 DATASETS_REGISTRY = {
     "imagenet-100": imagenet100,
     "micro-imagenet-100": micro_imagenet100,
+    "debug-100": debug100,
 }
 
 
@@ -68,9 +103,9 @@ def create_dataset(
     return dsets
 
 
-def _get_batch_transform(image_transform: Callable[[Image.Image], torch.Tensor]):
+def _get_batch_transform(image_transform: Callable[[I.Image], torch.Tensor]):
     def transform(
-        batch: Dict[str, List[Union[Image.Image, Any]]]
+        batch: Dict[str, List[Union[I.Image, Any]]]
     ) -> Dict[str, torch.Tensor]:
         batch["image"] = [image_transform(img.convert("RGB")) for img in batch["image"]]
         return batch

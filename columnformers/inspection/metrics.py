@@ -2,17 +2,18 @@ from typing import Dict
 
 import torch
 from timm.utils.metrics import accuracy
+from torch import nn
 
 from .registry import register_metric
 
 
 @register_metric("attn_entropy")
-class AttentionEntropy:
-    def __call__(self, state: Dict[str, torch.Tensor]):
-        attn = state.get("attn")
-        if attn is None:
+class AttentionEntropy(nn.Module):
+    def forward(self, state: Dict[str, torch.Tensor]):
+        attns = state.get("attns")
+        if attns is None:
             return float("nan")
-        return attention_entropy(attn).item()
+        return attention_entropy(attns).item()
 
 
 def attention_entropy(attn: torch.Tensor):
@@ -26,8 +27,8 @@ def attention_entropy(attn: torch.Tensor):
 
 
 @register_metric("accuracy")
-class Accuracy:
-    def __call__(self, state: Dict[str, torch.Tensor]):
+class Accuracy(nn.Module):
+    def forward(self, state: Dict[str, torch.Tensor]):
         output = state.get("output")
         target = state.get("label")
         if output is None or target is None:

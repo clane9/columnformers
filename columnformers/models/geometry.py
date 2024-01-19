@@ -1,4 +1,4 @@
-from typing import Optional, Tuple
+from typing import Tuple
 
 import torch
 
@@ -24,23 +24,3 @@ def multilayer_geometry(
     embedding = torch.cat(layers)
     dist = torch.cdist(embedding, embedding)
     return dist
-
-
-def l1_wiring_cost(
-    attn: torch.Tensor,
-    weight: torch.Tensor,
-    scale: bool = True,
-) -> torch.Tensor:
-    cost = (attn * weight).sum(dim=(-2, -1)).mean()
-    if scale:
-        cost = cost / weight.max()
-    return cost
-
-
-def gaussian_local_attn_bias(
-    dist: torch.Tensor, sigma: float = 2.0, min: Optional[float] = -8.0
-):
-    attn_bias = -(dist**2) / (2 * sigma**2)
-    if min is not None:
-        attn_bias = torch.clamp(attn_bias, min=min)
-    return attn_bias
