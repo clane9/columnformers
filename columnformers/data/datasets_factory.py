@@ -3,7 +3,15 @@ from typing import Any, Callable, Dict, List, Optional, Union
 
 import numpy as np
 import torch
-from datasets import ClassLabel, Dataset, DatasetDict, Features, Image, load_dataset
+from datasets import (
+    ClassLabel,
+    Dataset,
+    DatasetDict,
+    Features,
+    Image,
+    interleave_datasets,
+    load_dataset,
+)
 from PIL import Image as I
 from timm.data.transforms_factory import create_transform
 
@@ -19,25 +27,35 @@ def imagenet100(keep_in_memory: bool = False) -> DatasetDict:
 
 
 def micro_imagenet100(
-    train_size: int = 6000,
+    train_samples: int = 6000,
+    train_repeats: int = 20,
     seed: int = 42,
     keep_in_memory: bool = False,
 ) -> DatasetDict:
     """
     Load the Micro ImageNet-100 dataset that includes a small train set.
     """
-    dataset = imagenet100(keep_in_memory=keep_in_memory)
+    dataset = imagenet100()
     dataset["train"] = dataset["train"].train_test_split(
-        train_size=train_size,
+        train_size=train_samples,
         stratify_by_column="label",
         seed=seed,
     )["train"]
+
+    if keep_in_memory:
+        for split, ds in dataset.items():
+            dataset[split] = Dataset.from_dict(ds.to_dict(), features=ds.features)
+
+    if train_repeats > 1:
+        dataset["train"] = interleave_datasets(
+            [dataset["train"] for _ in range(train_repeats)]
+        )
     return dataset
 
 
 def debug100(
-    train_size: int = 256,
-    val_size: int = 256,
+    train_samples: int = 256,
+    val_samples: int = 256,
     img_size: int = 128,
     seed: int = 42,
     keep_in_memory: bool = False,
@@ -54,12 +72,12 @@ def debug100(
     features = Features({"image": Image(), "label": ClassLabel(num_classes=100)})
     dataset = {
         "train": Dataset.from_generator(
-            partial(generator, num_samples=train_size, seed=seed),
+            partial(generator, num_samples=train_samples, seed=seed),
             features=features,
             keep_in_memory=keep_in_memory,
         ),
         "validation": Dataset.from_generator(
-            partial(generator, num_samples=val_size, seed=seed + 1),
+            partial(generator, num_samples=val_samples, seed=seed + 1),
             features=features,
             keep_in_memory=keep_in_memory,
         ),

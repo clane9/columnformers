@@ -72,7 +72,7 @@ class Args:
     init_local_attn: Optional[bool] = HfArg(
         aliases=["--initloc"], default=None, help="initialize with local attention bias"
     )
-    global_pool: Optional[str] = HfArg(
+    global_pool: str = HfArg(
         aliases=["--pool"], default="avg", help="global pooling mode (avg, spatial)"
     )
     pos_embed: Optional[bool] = HfArg(
@@ -86,7 +86,7 @@ class Args:
         aliases=["--adr"], default=0.0, help="attention dropout rate"
     )
     wiring_lambd: float = HfArg(
-        aliases=["--wlambd"], default=0.1, help="wiring length penalty"
+        aliases=["--wlambd"], default=0.0, help="wiring length penalty"
     )
     # Dataset
     dataset: str = HfArg(
@@ -290,7 +290,7 @@ def main(args: Args):
     logging.info("Task: %s", task)
 
     param_count = sum(p.numel() for p in model.parameters())
-    flop_count = get_flops(model, loaders["validation"], clust)
+    flop_count = get_flops(model, loaders["validation"], clust.device)
     logging.info("Params: %.0fM, FLOPs: %.0fM", param_count / 1e6, flop_count / 1e6)
     if clust.master_process and args.wandb:
         wandb.log({"param_count": param_count, "flop_count": flop_count}, step=0)
@@ -691,10 +691,10 @@ def parse_untied(untied: Optional[str]):
 
 
 @torch.no_grad()
-def get_flops(model: torch.nn.Module, loader: DataLoader, clust: ut.ClusterEnv):
+def get_flops(model: torch.nn.Module, loader: DataLoader, device: torch.device):
     model.eval()
     batch = next(iter(loader))
-    x = batch["image"][:1].to(clust.device)
+    x = batch["image"][:1].to(device)
     flops = FlopCountAnalysis(model, x)
     return flops.total()
 
