@@ -60,6 +60,9 @@ class Args:
         help="untied mode coded as str of 1 or 3 comma separated values for norm, attn, "
         "mlp. e.g. '1' or '1,0,0'",
     )
+    skip_attn: Optional[bool] = HfArg(
+        aliases=["--skip"], default=None, help="include attention skip connection"
+    )
     attn_bias: Optional[bool] = HfArg(
         aliases=["--attnb"], default=None, help="use learned attention bias"
     )
@@ -273,12 +276,14 @@ def main(args: Args):
         num_heads=args.num_heads,
         mlp_ratio=args.mlp_ratio,
         untied=parse_untied(args.untied),
+        skip_attn=args.skip_attn,
         attn_bias=args.attn_bias,
         qk_head_dim=args.qk_head_dim,
         no_vp=args.no_vp,
         init_local_attn=args.init_local_attn,
         num_classes=num_classes,
         global_pool=args.global_pool,
+        pos_embed=args.pos_embed,
         drop_rate=args.drop_rate,
         proj_drop_rate=args.proj_drop_rate,
         attn_drop_rate=args.attn_drop_rate,

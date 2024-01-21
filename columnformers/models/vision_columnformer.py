@@ -141,10 +141,9 @@ def vision_transformer_tiny_patch16_128(**kwargs):
         "embed_dim": 384,
         "depth": 6,
         "recurrent": False,
-        "untied": False,
         "seq_len": 64,
     }
-    encoder_defaults = {"num_heads": 6}
+    encoder_defaults = {"num_heads": 6, "untied": False}
     params = {"img_size": 128, "patch_size": 16}
     defaults = {}
     model = _create_vision_columnformer(

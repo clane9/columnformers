@@ -35,7 +35,7 @@ configs = {
 }
 
 
-@pytest.mark.parametrize("config", ["feedforward"])
+@pytest.mark.parametrize("config", ["default", "transformer", "feedforward"])
 def test_train(config: str):
     args = configs[config]
     train.main(args)
