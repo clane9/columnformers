@@ -13,16 +13,14 @@ requires-python = ">=3.10"
 license = {text = "MIT License"}
 dependencies = [
     "datasets",
-    "einops",
     "fvcore",
-    "hf-argparser",
     "matplotlib",
     "numpy",
     "Pillow",
     "timm",
     "torch",
     "torchvision",
-    "tqdm",
+    "transformers",
     "wandb",
 ]
 dynamic = ["version"]
