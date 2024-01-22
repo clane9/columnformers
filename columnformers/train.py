@@ -452,6 +452,7 @@ def train_one_epoch(
     model.train()
     task.train()
     if clust.use_cuda:
+        torch.cuda.empty_cache()
         torch.cuda.reset_peak_memory_stats()
     optimizer.zero_grad()
 
@@ -600,6 +601,7 @@ def validate(
     model.eval()
     task.eval()
     if clust.use_cuda:
+        torch.cuda.empty_cache()
         torch.cuda.reset_peak_memory_stats()
 
     loss_m = AverageMeter()
