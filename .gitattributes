@@ -1,0 +1,8 @@
+# Don't let jupyter notebooks inflate github line counts
+# https://github.com/pytorch/vision/issues/2771
+
+# Count notebooks as text
+# *.ipynb text
+
+# Ignore notebooks altogether
+*.ipynb linguist-documentation
