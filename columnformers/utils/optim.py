@@ -179,7 +179,7 @@ def load_checkpoint(
     load_opt_state: bool = True,
 ):
     """
-    Load a checkpoint in place. Returns a tuple of the start epoch, best metric, and a
+    Load a checkpoint in place. Returns a tuple of the start epoch, best loss, and a
     named tuple of (missing_keys, unexpected_keys).
     """
     state = torch.load(checkpoint_path, map_location=device)
@@ -197,16 +197,16 @@ def load_checkpoint(
     if load_opt_state:
         optimizer.load_state_dict(state["optimizer"])
         start_epoch = state["epoch"]
-        best_metric = state["metric"]
+        best_loss = state["loss"]
     else:
         start_epoch = 0
-        best_metric = float("inf")
-    return start_epoch, best_metric, bad_keys
+        best_loss = float("inf")
+    return start_epoch, best_loss, bad_keys
 
 
 def save_checkpoint(
     epoch: int,
-    metric: float,
+    loss: float,
     is_best: bool,
     model: Union[DDP, nn.Module],
     optimizer: torch.optim.Optimizer,
@@ -221,7 +221,7 @@ def save_checkpoint(
 
     state = {
         "epoch": epoch,
-        "metric": metric,
+        "loss": loss,
         "model": model.state_dict(),
         "optimizer": optimizer.state_dict(),
     }

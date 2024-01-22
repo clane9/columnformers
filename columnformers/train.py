@@ -10,11 +10,10 @@ from contextlib import suppress
 from dataclasses import asdict, dataclass
 from functools import partial
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
-import wandb
 import yaml
 from fvcore.nn import FlopCountAnalysis
 from matplotlib import pyplot as plt
@@ -25,6 +24,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader
 from transformers.hf_argparser import HfArg, HfArgumentParser
 
+import wandb
 from columnformers import utils as ut
 from columnformers.data import create_dataset, create_loader, list_datasets
 from columnformers.inspection import (
@@ -106,6 +106,9 @@ class Args:
     )
     workers: int = HfArg(aliases=["-j"], default=4, help="data loading workers")
     prefetch: bool = HfArg(default=True, help="use cuda prefetching")
+    in_memory: bool = HfArg(
+        aliases=["--inmem"], default=True, help="keep dataset in memory"
+    )
     # Optimization
     epochs: int = HfArg(default=100, help="number of epochs")
     batch_size: int = HfArg(
@@ -126,7 +129,7 @@ class Args:
     clip_grad: Optional[float] = HfArg(default=1.0, help="gradient norm clipping")
     # Paths
     out_dir: str = HfArg(default="results", help="path to root output directory")
-    prefix: Optional[str] = HfArg(default=None, help="experiment name prefix")
+    group: Optional[str] = HfArg(default=None, help="experiment group")
     name: Optional[str] = HfArg(default=None, help="full experiment name")
     desc: Optional[str] = HfArg(default=None, help="description to attach to run")
     # Figures and metrics
@@ -183,10 +186,12 @@ def main(args: Args):
     commit_sha = ut.get_sha()
     if args.name is None:
         name_seed = ut.seed_hash(commit_sha, json.dumps(args.__dict__))
-        name = ut.get_exp_name(args.prefix, seed=name_seed)
+        name = ut.get_exp_name(seed=name_seed)
     else:
         name = args.name
     out_dir = Path(args.out_dir) / args.project
+    if args.group:
+        out_dir = out_dir / args.group
     out_dir = out_dir / name
 
     # Creating output dir
@@ -209,7 +214,9 @@ def main(args: Args):
 
     # Wandb setup
     if clust.master_process and args.wandb:
-        wandb.init(project=args.project, name=name, config=args.__dict__)
+        wandb.init(
+            project=args.project, group=args.group, name=name, config=args.__dict__
+        )
 
     # Initial logging
     logging.info("Starting training: %s/%s", args.project, name)
@@ -249,11 +256,11 @@ def main(args: Args):
         min_scale=args.crop_min_scale,
         hflip=args.hflip,
         color_jitter=args.color_jitter,
-        keep_in_memory=clust.device.type == "cuda" and not args.debug,
+        keep_in_memory=args.in_memory,
     )
     num_classes = dataset["train"].features["label"].num_classes
     logging.info("Dataset: %s", dataset)
-    logging.info("Input size: %dx%d", input_size)
+    logging.info("Input size: %dx%d", input_size, input_size)
 
     loaders = {}
     for split, ds in dataset.items():
@@ -296,9 +303,11 @@ def main(args: Args):
 
     param_count = sum(p.numel() for p in model.parameters())
     flop_count = get_flops(model, loaders["validation"], clust.device)
-    logging.info("Params: %.0fM, FLOPs: %.0fM", param_count / 1e6, flop_count / 1e6)
+    counts = {"params (M)": param_count / 1e6, "flops (M)": flop_count / 1e6}
     if clust.master_process and args.wandb:
-        wandb.log({"param_count": param_count, "flop_count": flop_count}, step=0)
+        wandb.log({f"counts.{k}": v for k, v in counts.items()}, step=0)
+    logging.info("Params: %.0fM, FLOPs: %.0fM", param_count / 1e6, flop_count / 1e6)
+    logging.info("Counts:\n%s", json.dumps(counts))
 
     # Optimizer
     logging.info("Creating optimizer")
@@ -331,7 +340,7 @@ def main(args: Args):
     # Load checkpoint
     if args.checkpoint:
         logging.info("Loading checkpoint: %s", args.checkpoint)
-        start_epoch, best_metric = ut.load_checkpoint(
+        start_epoch, best_loss = ut.load_checkpoint(
             args.checkpoint,
             model,
             optimizer,
@@ -341,8 +350,9 @@ def main(args: Args):
         )
     else:
         start_epoch = 0
-        best_metric = float("inf")
+        best_loss = float("inf")
     best_epoch = start_epoch
+    best_metrics = {}
 
     if clust.ddp:
         model = DDP(model, device_ids=[clust.local_rank])
@@ -374,10 +384,10 @@ def main(args: Args):
             out_dir=out_dir,
         )
 
-        metric = validate(
+        loss, metrics = validate(
             args=args,
             epoch=epoch,
-            step=(epoch + 1) * epoch_steps,
+            step=(epoch + 1) * epoch_steps - 1,
             model=model,
             task=task,
             val_loader=loaders["validation"],
@@ -386,35 +396,38 @@ def main(args: Args):
             metric_builders=metric_builders,
             out_dir=out_dir,
         )
+        is_best = loss < best_loss
 
         if clust.master_process and (
             epoch % args.checkpoint_interval == 0 or epoch + 1 == args.epochs
         ):
             ut.save_checkpoint(
                 epoch=epoch,
-                metric=metric,
-                is_best=metric < best_metric,
+                loss=loss,
+                is_best=is_best,
                 model=model,
                 optimizer=optimizer,
                 out_dir=out_dir,
                 max_checkpoints=args.max_checkpoints,
             )
 
-        if metric < best_metric:
-            best_metric = metric
+        if is_best:
+            best_loss = loss
             best_epoch = epoch
+            best_metrics = metrics
 
         if args.debug:
             break
 
     if clust.master_process and args.wandb:
-        wandb.log(
-            {"score_last": metric, "score_best": best_metric},
-            step=args.epochs * epoch_steps,
-        )
+        last_step = args.epochs * epoch_steps
+        wandb.log({f"last.{k}": v for k, v in metrics.items()}, step=last_step)
+        wandb.log({f"best.{k}": v for k, v in best_metrics.items()}, step=last_step)
+    logging.info("Last metrics:\n%s", json.dumps(metrics))
+    logging.info("Best metrics:\n%s", json.dumps(best_metrics))
 
     logging.info("Done! Run time: %.0fs", time.monotonic() - start_time)
-    logging.info("*** Best metric: %.3f (epoch %d)", best_metric, best_epoch)
+    logging.info("*** Best loss: %#.3g (epoch %d)", best_loss, best_epoch)
 
     if clust.ddp:
         destroy_process_group()
@@ -545,7 +558,7 @@ def train_one_epoch(
                     print(json.dumps(record), file=f)
 
                 if args.wandb:
-                    wandb.log({"train": record}, step=step)
+                    wandb.log({f"train.{k}": v for k, v in record.items()}, step=step)
 
         # Restart timer for next iteration
         end = time.monotonic()
@@ -567,7 +580,7 @@ def train_one_epoch(
 
         if args.wandb:
             images = {name: wandb.Image(str(path)) for name, path in paths.items()}
-            wandb.log({"train": {"figures": images}}, step=step)
+            wandb.log({f"figs.train.{k}": v for k, v in images.items()}, step=step)
 
 
 @torch.no_grad()
@@ -583,7 +596,7 @@ def validate(
     figure_builders: Dict[str, Figure],
     metric_builders: Dict[str, Metric],
     out_dir: Path,
-) -> float:
+) -> Tuple[float, Dict[str, float]]:
     model.eval()
     task.eval()
     if clust.use_cuda:
@@ -667,7 +680,7 @@ def validate(
             print(json.dumps(record), file=f)
 
         if args.wandb:
-            wandb.log({"val": record}, step=step)
+            wandb.log({f"val.{k}": v for k, v in record.items()}, step=step)
 
     if clust.master_process and save_figures:
         paths = {}
@@ -682,14 +695,16 @@ def validate(
 
         if args.wandb:
             images = {name: wandb.Image(str(path)) for name, path in paths.items()}
-            wandb.log({"val": {"figures": images}}, step=step)
+            wandb.log({f"figs.val.{k}": v for k, v in images.items()}, step=step)
 
-    return loss_m.avg
+    metrics = {k: v.avg for k, v in metric_ms.items()}
+    metrics = {"loss": loss_m.avg, **metrics}
+    return loss_m.avg, metrics
 
 
 def parse_untied(untied: Optional[str]):
     if untied is not None:
-        untied = tuple([bool(int(val) for val in untied.strip().split(","))])
+        untied = tuple([bool(int(val)) for val in untied.strip().split(",")])
         if len(untied) == 1:
             untied = untied[0]
     return untied

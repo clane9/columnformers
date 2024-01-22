@@ -16,14 +16,14 @@ class AttentionEntropy(nn.Module):
         return attention_entropy(attns).item()
 
 
-def attention_entropy(attn: torch.Tensor):
+def attention_entropy(attn: torch.Tensor, eps: float = 1e-8):
     """
     Entropy of the attention matrix.
 
     Reference:
         https://github.com/apple/ml-sigma-reparam
     """
-    return -(attn * attn.log()).sum(dim=-1).mean()
+    return -(attn * (attn + eps).log()).sum(dim=-1).mean()
 
 
 @register_metric("accuracy")

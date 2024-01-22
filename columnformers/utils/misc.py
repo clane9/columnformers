@@ -129,7 +129,7 @@ def get_sha():
     return message
 
 
-def get_exp_name(prefix: str, seed: int):
+def get_exp_name(seed: int, prefix: Optional[str] = None):
     """
     Generate a unique experiment name based on a prefix and a random seed.
 
