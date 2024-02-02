@@ -23,4 +23,8 @@ def multilayer_geometry(
         layers.append(coords)
     embedding = torch.cat(layers)
     dist = torch.cdist(embedding, embedding)
+
+    # Assume this is the feedforward case. Add a depth offset.
+    if len(widths) == 1:
+        dist = torch.sqrt(dist**2 + depth_offset**2)
     return dist

@@ -1,16 +1,19 @@
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
 
 import torch
 import torch.nn.functional as F
 from torch import nn
 
-from .losses import l1_wiring_cost
+from .losses import WiringCost
 
 
 class ImageClassification(nn.Module):
-    def __init__(self, wiring_lambd: float = 0.0):
+    def __init__(self, wiring_cost: Optional[WiringCost] = None):
         super().__init__()
-        self.wiring_lambd = wiring_lambd
+        if wiring_cost is None:
+            self.register_module("wiring_cost", None)
+        else:
+            self.wiring_cost = wiring_cost
 
     def forward(
         self, model: nn.Module, batch: Dict[str, torch.Tensor]
@@ -22,10 +25,8 @@ class ImageClassification(nn.Module):
         output, state = output if isinstance(output, tuple) else (output, {})
 
         class_loss = F.cross_entropy(output, target)
-        if self.wiring_lambd > 0:
-            wiring_loss = self.wiring_lambd * l1_wiring_cost(
-                state["attns"], model.geometry
-            )
+        if self.wiring_cost is not None:
+            wiring_loss = self.wiring_cost(state["attns"])
         else:
             wiring_loss = torch.zeros_like(class_loss)
         loss = class_loss + wiring_loss
