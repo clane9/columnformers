@@ -36,9 +36,10 @@ from columnformers.inspection import (
     list_metrics,
 )
 from columnformers.models import create_model, list_models
-from columnformers.tasks import ImageClassification, Task
+from columnformers.tasks import ImageClassification, Task, WiringCost
 
 np.set_printoptions(precision=3)
+plt.switch_backend("Agg")
 
 
 @dataclass
@@ -88,9 +89,13 @@ class Args:
     attn_drop_rate: float = HfArg(
         aliases=["--adr"], default=0.0, help="attention dropout rate"
     )
+    depth_offset: int = HfArg(
+        aliases=["--offset"], default=2.0, help="distance offset between layers"
+    )
     wiring_lambd: float = HfArg(
         aliases=["--wlambd"], default=0.0, help="wiring length penalty"
     )
+    wiring_p: float = HfArg(aliases=["--wp"], default=1.0, help="wiring length power")
     # Dataset
     dataset: str = HfArg(
         aliases=["--ds"],
@@ -280,6 +285,7 @@ def main(args: Args):
     logging.info("Creating model: %s", args.model)
     model = create_model(
         args.model,
+        depth_offset=args.depth_offset,
         num_heads=args.num_heads,
         mlp_ratio=args.mlp_ratio,
         untied=parse_untied(args.untied),
@@ -298,7 +304,16 @@ def main(args: Args):
     model: torch.nn.Module = model.to(clust.device)
     logging.info("%s", model)
 
-    task = ImageClassification(wiring_lambd=args.wiring_lambd)
+    if args.wiring_lambd > 0:
+        wiring_cost = WiringCost(
+            geometry=model.geometry,
+            lambd=args.wiring_lambd,
+            p=args.wiring_p,
+        )
+    else:
+        wiring_cost = None
+    task = ImageClassification(wiring_cost)
+    task = task.to(clust.device)
     logging.info("Task: %s", task)
 
     param_count = sum(p.numel() for p in model.parameters())

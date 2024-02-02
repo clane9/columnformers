@@ -32,10 +32,21 @@ configs = {
         overwrite=True,
         debug=True,
     ),
+    "wiring": train.Args(
+        model="vision_transformer_tiny_patch16_128",
+        dataset="debug-100",
+        wiring_lambd=0.1,
+        workers=0,
+        batch_size=32,
+        out_dir="test_results",
+        name="debug_train_wiring",
+        overwrite=True,
+        debug=True,
+    ),
 }
 
 
-@pytest.mark.parametrize("config", ["default", "transformer", "feedforward"])
+@pytest.mark.parametrize("config", ["default", "transformer", "feedforward", "wiring"])
 def test_train(config: str):
     args = configs[config]
     train.main(args)
