@@ -73,8 +73,9 @@ class LowRankLinear(nn.Module):
         self.out_features = out_features
         self.n_components = n_components
 
-        self.weight1 = nn.Parameter(torch.empty((seq_len, out_features, n_components)))
-        self.weight2 = nn.Parameter(
+        self.weight = nn.Parameter(torch.empty((out_features, n_components)))
+        self.factor1 = nn.Parameter(torch.empty((seq_len, out_features, n_components)))
+        self.factor2 = nn.Parameter(
             torch.empty((out_features, in_features, n_components))
         )
         if bias:
@@ -84,17 +85,16 @@ class LowRankLinear(nn.Module):
         self.reset_parameters()
 
     def reset_parameters(self) -> None:
-        # scale std so that the entries of the product have std = 0.02
-        std = self.n_components**-0.5
-        std = (0.02 * std) ** 0.5
-
-        trunc_normal_(self.weight1, std=std)
-        trunc_normal_(self.weight2, std=std)
+        trunc_normal_(self.weight, std=0.02)
+        # initializing factors to be zero means with start out with tied weights which
+        # the network can then differentiate
+        nn.init.zeros_(self.factor1)
+        nn.init.zeros_(self.factor2)
         if self.bias is not None:
             nn.init.zeros_(self.bias)
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
-        weight = torch.einsum("ndk,dck->ndc", self.weight1, self.weight2)
+        weight = self.weight + torch.einsum("ndk,dck->ndc", self.factor1, self.factor2)
         output = torch.einsum("bnc,ndc->bnd", input, weight)
         if self.bias is not None:
             output = output + self.bias
