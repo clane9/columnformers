@@ -50,6 +50,63 @@ class UntiedLinear(nn.Module):
         )
 
 
+class LowRankLinear(nn.Module):
+    """
+    Linear layer with factorized low-rank weights across the sequence.
+
+    Note that tied weights corresponds to the rank 1 case, whereas untied weights
+    corresponds to the full rank case. Thus, by adapting the rank, we can slide between
+    tied and untied weights.
+    """
+
+    def __init__(
+        self,
+        seq_len: int,
+        in_features: int,
+        out_features: int,
+        n_components: int = 16,
+        bias: bool = True,
+    ):
+        super().__init__()
+        self.seq_len = seq_len
+        self.in_features = in_features
+        self.out_features = out_features
+        self.n_components = n_components
+
+        self.weight1 = nn.Parameter(torch.empty((seq_len, out_features, n_components)))
+        self.weight2 = nn.Parameter(
+            torch.empty((out_features, in_features, n_components))
+        )
+        if bias:
+            self.bias = nn.Parameter(torch.empty(seq_len, out_features))
+        else:
+            self.register_parameter("bias", None)
+        self.reset_parameters()
+
+    def reset_parameters(self) -> None:
+        # scale std so that the entries of the product have std = 0.02
+        std = self.n_components**-0.5
+        std = (0.02 * std) ** 0.5
+
+        trunc_normal_(self.weight1, std=std)
+        trunc_normal_(self.weight2, std=std)
+        if self.bias is not None:
+            nn.init.zeros_(self.bias)
+
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
+        weight = torch.einsum("ndk,dck->ndc", self.weight1, self.weight2)
+        output = torch.einsum("bnc,ndc->bnd", input, weight)
+        if self.bias is not None:
+            output = output + self.bias
+        return output
+
+    def extra_repr(self) -> str:
+        return (
+            f"{self.seq_len}, {self.in_features}, {self.out_features}, "
+            f"n_components={self.n_components}, bias={self.bias is not None}"
+        )
+
+
 class UntiedLayerNorm(nn.Module):
     """
     Layer norm with untied weights across the sequence.
