@@ -7,7 +7,7 @@ from timm.layers import trunc_normal_
 from timm.layers.helpers import to_2tuple, to_3tuple
 from torch import nn
 
-from .layers import Layer, UntiedLayerNorm, UntiedLinear
+from .layers import Layer, LowRankLinear, UntiedLayerNorm, UntiedLinear
 
 
 class Attention(nn.Module):
@@ -252,18 +252,25 @@ class Mlp(nn.Module):
         out_features: Optional[int] = None,
         untied: bool = False,
         seq_len: Optional[int] = None,
+        rank: Optional[int] = None,
         act_layer: Optional[Layer] = nn.GELU,
         bias: Union[bool, Tuple[bool, bool]] = True,
         drop: Union[float, Tuple[float, float]] = 0.0,
     ):
         super().__init__()
         assert not untied or seq_len, "seq_len required for untied"
+        assert not rank or untied, "untied required if using rank"
 
         hidden_features = hidden_features or in_features
         out_features = out_features or in_features
         biases = to_2tuple(bias)
         drop_probs = to_2tuple(drop)
-        linear_layer = partial(UntiedLinear, seq_len) if untied else nn.Linear
+        if not untied:
+            linear_layer = nn.Linear
+        elif not rank:
+            linear_layer = partial(UntiedLinear, seq_len)
+        else:
+            linear_layer = partial(LowRankLinear, seq_len, rank=rank)
         act_layer = nn.Identity if act_layer is None else act_layer
 
         self.fc1 = linear_layer(in_features, hidden_features, bias=biases[0])
@@ -289,6 +296,7 @@ class Block(nn.Module):
         mlp_ratio: float = 4.0,
         untied: Union[bool, Tuple[bool, bool, bool]] = False,
         seq_len: Optional[int] = None,
+        mlp_rank: Optional[int] = None,
         attn_mode: Literal["classic", "selection", "mixing"] = "classic",
         skip_attn: bool = True,
         attn_bias: bool = False,
@@ -343,6 +351,7 @@ class Block(nn.Module):
             hidden_features=int(dim * mlp_ratio),
             untied=untied_mlp,
             seq_len=seq_len,
+            rank=mlp_rank,
             act_layer=act_layer,
             drop=proj_drop,
         )
@@ -369,6 +378,7 @@ class Columnformer(nn.Module):
         mlp_ratio: float = 4.0,
         untied: Union[bool, Tuple[bool, bool, bool]] = False,
         seq_len: Optional[int] = None,
+        mlp_rank: Optional[int] = None,
         attn_mode: Literal["classic", "selection", "mixing"] = "classic",
         skip_attn: bool = True,
         attn_bias: bool = False,
@@ -409,6 +419,7 @@ class Columnformer(nn.Module):
                 mlp_ratio=mlp_ratio,
                 untied=untied,
                 seq_len=seq_len,
+                mlp_rank=mlp_rank,
                 attn_mode=attn_mode,
                 skip_attn=skip_attn,
                 attn_bias=attn_bias,

@@ -61,6 +61,9 @@ class Args:
         help="untied mode coded as str of 1 or 3 comma separated values for norm, attn, "
         "mlp. e.g. '1' or '1,0,0'",
     )
+    mlp_rank: Optional[int] = HfArg(
+        default=None, help="rank of factorized untied MLP weights"
+    )
     attn_mode: Optional[str] = HfArg(
         aliases=["--attnm"],
         default=None,
@@ -297,6 +300,7 @@ def main(args: Args):
         num_heads=args.num_heads,
         mlp_ratio=args.mlp_ratio,
         untied=parse_untied(args.untied),
+        mlp_rank=args.mlp_rank,
         attn_mode=args.attn_mode,
         skip_attn=args.skip_attn,
         attn_bias=args.attn_bias,

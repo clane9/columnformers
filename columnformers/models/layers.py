@@ -64,20 +64,18 @@ class LowRankLinear(nn.Module):
         seq_len: int,
         in_features: int,
         out_features: int,
-        n_components: int = 16,
+        rank: int = 16,
         bias: bool = True,
     ):
         super().__init__()
         self.seq_len = seq_len
         self.in_features = in_features
         self.out_features = out_features
-        self.n_components = n_components
+        self.rank = rank
 
-        self.weight = nn.Parameter(torch.empty((out_features, n_components)))
-        self.factor1 = nn.Parameter(torch.empty((seq_len, out_features, n_components)))
-        self.factor2 = nn.Parameter(
-            torch.empty((out_features, in_features, n_components))
-        )
+        self.weight = nn.Parameter(torch.empty((out_features, in_features)))
+        self.factor1 = nn.Parameter(torch.empty((seq_len, rank)))
+        self.factor2 = nn.Parameter(torch.empty((out_features, in_features, rank)))
         if bias:
             self.bias = nn.Parameter(torch.empty(seq_len, out_features))
         else:
@@ -94,7 +92,9 @@ class LowRankLinear(nn.Module):
             nn.init.zeros_(self.bias)
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
-        weight = self.weight + torch.einsum("ndk,dck->ndc", self.factor1, self.factor2)
+        weight = self.weight
+        # einsum here would be more consise but more flops (~5x)
+        weight = weight + (self.factor1 @ self.factor2.transpose(1, 2)).transpose(0, 1)
         output = torch.einsum("bnc,ndc->bnd", input, weight)
         if self.bias is not None:
             output = output + self.bias
@@ -103,7 +103,7 @@ class LowRankLinear(nn.Module):
     def extra_repr(self) -> str:
         return (
             f"{self.seq_len}, {self.in_features}, {self.out_features}, "
-            f"n_components={self.n_components}, bias={self.bias is not None}"
+            f"rank={self.rank}, bias={self.bias is not None}"
         )
 
 
