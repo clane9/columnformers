@@ -1,8 +1,9 @@
 from functools import partial
-from typing import Dict, Optional, Tuple, Union
+from typing import Dict, Literal, Optional, Tuple, Union
 
 import torch
 import torch.nn.functional as F
+from timm.layers import trunc_normal_
 from timm.layers.helpers import to_2tuple, to_3tuple
 from torch import nn
 
@@ -14,7 +15,7 @@ class Attention(nn.Module):
     Multi-head attention with options for:
 
         - untied weights across the sequence
-        - learned attention bias
+        - learned attention bias (optionally per head)
         - low qk dim
         - no value/projection following (He & Hofmann, 2023)
 
@@ -30,6 +31,7 @@ class Attention(nn.Module):
         untied: bool = False,
         seq_len: Optional[int] = None,
         bias: bool = False,
+        head_bias: bool = False,
         qkv_bias: Union[bool, Tuple[bool, bool, bool]] = False,
         qk_head_dim: Optional[int] = None,
         no_vp: bool = False,
@@ -40,6 +42,7 @@ class Attention(nn.Module):
         assert dim % num_heads == 0, "dim should be divisible by num_heads"
         assert not no_vp or proj_drop == 0, "no_vp incompatible with proj_drop"
         assert not (bias or untied) or seq_len, "seq_len required for bias or untied"
+        assert not head_bias or bias, "head_bias requires bias"
 
         self.num_heads = num_heads
         self.head_dim = dim // num_heads
@@ -52,6 +55,10 @@ class Attention(nn.Module):
             self.bias = nn.Parameter(torch.zeros(seq_len, seq_len))
         else:
             self.register_parameter("bias", None)
+        if head_bias:
+            self.head_bias = nn.Parameter(torch.zeros(num_heads, seq_len, seq_len))
+        else:
+            self.register_parameter("head_bias", None)
 
         self.q = linear_layer(dim, num_heads * self.qk_head_dim, bias=qkv_biases[0])
         self.k = linear_layer(dim, num_heads * self.qk_head_dim, bias=qkv_biases[1])
@@ -76,10 +83,12 @@ class Attention(nn.Module):
         attn = q @ k.transpose(-2, -1)
         if self.bias is not None:
             attn = attn + self.bias
+        if self.head_bias is not None:
+            attn = attn + self.head_bias
         attn = attn.softmax(dim=-1)
         attn = self.attn_drop(attn)
-        x = attn @ v
 
+        x = attn @ v
         x = x.transpose(1, 2).reshape(B, N, C)
         x = self.proj(x)
         x = self.proj_drop(x)
@@ -90,7 +99,142 @@ class Attention(nn.Module):
         self.bias.data.copy_(bias)
 
     def extra_repr(self) -> str:
-        return f"bias={self.bias is not None}"
+        return f"bias={self.bias is not None}, head_bias={self.head_bias is not None}"
+
+
+class Selection(nn.Module):
+    """
+    Multi-head static feature-based "selection".
+
+    Treats inputs as keys/values and uses a static as opposed to dyanmic query.
+    """
+
+    def __init__(
+        self,
+        seq_len: int,
+        dim: int,
+        num_heads: int = 8,
+        bias: bool = True,
+        head_bias: bool = True,
+        attn_drop: float = 0.0,
+    ):
+        super().__init__()
+        assert dim % num_heads == 0, "dim should be divisible by num_heads"
+        assert seq_len, "seq_len required for selection"
+        assert not head_bias or bias, "head_bias requires bias"
+
+        self.dim = dim
+        self.seq_len = seq_len
+        self.num_heads = num_heads
+        self.head_dim = dim // num_heads
+        self.scale = self.head_dim**-0.5
+
+        self.query = nn.Parameter(torch.empty(num_heads, seq_len, self.head_dim))
+        if bias:
+            self.bias = nn.Parameter(torch.empty(seq_len, seq_len))
+        else:
+            self.register_parameter("bias", None)
+        if head_bias:
+            self.head_bias = nn.Parameter(torch.empty(num_heads, seq_len, seq_len))
+        else:
+            self.register_parameter("head_bias", None)
+        self.attn_drop = nn.Dropout(attn_drop)
+        self.reset_parameters()
+
+    def reset_parameters(self) -> None:
+        trunc_normal_(self.query, std=0.02)
+        if self.bias is not None:
+            nn.init.zeros_(self.bias)
+        if self.head_bias is not None:
+            nn.init.zeros_(self.head_bias)
+
+    def forward(self, x: torch.Tensor):
+        B, N, C = x.shape
+        x = x.reshape(B, N, self.num_heads, self.head_dim).transpose(1, 2)
+
+        q = self.scale * self.query
+        attn = q @ x.transpose(-2, -1)
+        if self.bias is not None:
+            attn = attn + self.bias
+        if self.head_bias is not None:
+            attn = attn + self.head_bias
+        attn = attn.softmax(dim=-1)
+        attn = self.attn_drop(attn)
+
+        x = attn @ x
+        x = x.transpose(1, 2).reshape(B, N, C)
+        return x, attn
+
+    def init_bias(self, bias: torch.Tensor):
+        self.bias.data.copy_(bias)
+
+    def extra_repr(self) -> str:
+        return (
+            f"{self.seq_len}, {self.dim}, num_heads={self.num_heads}, "
+            f"bias={self.bias is not None}, head_bias={self.head_bias is not None}"
+        )
+
+
+class Mixing(nn.Module):
+    """
+    Multi-head static feature "mixing" similar to ConvNext and MLP-Mixer.
+    """
+
+    def __init__(
+        self,
+        seq_len: int,
+        dim: int,
+        num_heads: int = 8,
+        head_bias: bool = True,
+        attn_drop: float = 0.0,
+    ):
+        super().__init__()
+        assert dim % num_heads == 0, "dim should be divisible by num_heads"
+        assert seq_len, "seq_len required for selection"
+
+        self.dim = dim
+        self.seq_len = seq_len
+        self.num_heads = num_heads
+        self.head_dim = dim // num_heads
+
+        self.bias = nn.Parameter(torch.empty(seq_len, seq_len))
+        if head_bias:
+            self.head_bias = nn.Parameter(torch.empty(num_heads, seq_len, seq_len))
+        else:
+            self.register_parameter("head_bias", None)
+        self.attn_drop = nn.Dropout(attn_drop)
+        self.reset_parameters()
+
+    def reset_parameters(self) -> None:
+        trunc_normal_(self.bias, std=0.02)
+        if self.head_bias is not None:
+            nn.init.zeros_(self.head_bias)
+
+    def forward(self, x: torch.Tensor):
+        B, N, C = x.shape
+        x = x.reshape(B, N, self.num_heads, self.head_dim).transpose(1, 2)
+
+        attn = self.bias
+        if self.head_bias is not None:
+            attn = attn + self.head_bias
+        attn = attn.softmax(dim=-1)
+        attn = self.attn_drop(attn)
+
+        x = attn @ x
+        x = x.transpose(1, 2).reshape(B, N, C)
+
+        # expand to be consistent with other attention mechanisms
+        attn = attn.expand(B, -1, -1, -1)
+        return x, attn
+
+    def init_bias(self, bias: torch.Tensor):
+        self.bias.data.copy_(bias)
+
+    def extra_repr(self) -> str:
+        return (
+            f"{self.seq_len}, {self.dim}, num_heads={self.num_heads}, "
+            f"head_bias={self.head_bias is not None}"
+        )
 
 
 class Mlp(nn.Module):
@@ -145,8 +289,10 @@ class Block(nn.Module):
         mlp_ratio: float = 4.0,
         untied: Union[bool, Tuple[bool, bool, bool]] = False,
         seq_len: Optional[int] = None,
+        attn_mode: Literal["classic", "selection", "mixing"] = "classic",
         skip_attn: bool = True,
         attn_bias: bool = False,
+        attn_head_bias: bool = False,
         qkv_bias: Union[bool, Tuple[bool, bool, bool]] = False,
         qk_head_dim: Optional[int] = None,
         no_vp: bool = False,
@@ -160,18 +306,37 @@ class Block(nn.Module):
         norm_layer = partial(UntiedLayerNorm, seq_len) if untied_norm else nn.LayerNorm
 
         self.norm1 = norm_layer(dim)
-        self.attn = Attention(
-            dim,
-            num_heads=num_heads,
-            untied=untied_attn,
-            seq_len=seq_len,
-            bias=attn_bias,
-            qkv_bias=qkv_bias,
-            qk_head_dim=qk_head_dim,
-            no_vp=no_vp,
-            attn_drop=attn_drop,
-            proj_drop=proj_drop,
-        )
+        if attn_mode == "mixing":
+            self.attn = Mixing(
+                seq_len=seq_len,
+                dim=dim,
+                num_heads=num_heads,
+                head_bias=attn_head_bias,
+                attn_drop=attn_drop,
+            )
+        elif attn_mode == "selection":
+            self.attn = Selection(
+                seq_len=seq_len,
+                dim=dim,
+                num_heads=num_heads,
+                bias=attn_bias,
+                head_bias=attn_head_bias,
+                attn_drop=attn_drop,
+            )
+        else:
+            self.attn = Attention(
+                dim=dim,
+                num_heads=num_heads,
+                untied=untied_attn,
+                seq_len=seq_len,
+                bias=attn_bias,
+                head_bias=attn_head_bias,
+                qkv_bias=qkv_bias,
+                qk_head_dim=qk_head_dim,
+                no_vp=no_vp,
+                attn_drop=attn_drop,
+                proj_drop=proj_drop,
+            )
         self.norm2 = norm_layer(dim)
         self.mlp = Mlp(
             in_features=dim,
@@ -204,8 +369,10 @@ class Columnformer(nn.Module):
         mlp_ratio: float = 4.0,
         untied: Union[bool, Tuple[bool, bool, bool]] = False,
         seq_len: Optional[int] = None,
+        attn_mode: Literal["classic", "selection", "mixing"] = "classic",
         skip_attn: bool = True,
         attn_bias: bool = False,
+        attn_head_bias: bool = False,
         qkv_bias: Union[bool, Tuple[bool, bool, bool]] = True,
         qk_head_dim: Optional[int] = None,
         no_vp: bool = False,
@@ -242,8 +409,10 @@ class Columnformer(nn.Module):
                 mlp_ratio=mlp_ratio,
                 untied=untied,
                 seq_len=seq_len,
+                attn_mode=attn_mode,
                 skip_attn=skip_attn,
                 attn_bias=attn_bias,
+                attn_head_bias=attn_head_bias,
                 qkv_bias=qkv_bias,
                 qk_head_dim=qk_head_dim,
                 no_vp=no_vp,

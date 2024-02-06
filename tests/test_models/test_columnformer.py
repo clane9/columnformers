@@ -46,12 +46,44 @@ CONFIGS = {
         "qk_head_dim": 64,
         "no_vp": True,
     },
+    "columnformer_ff_sel": {
+        "embed_dim": 384,
+        "depth": 6,
+        "recurrent": False,
+        "num_heads": 6,
+        "mlp_ratio": 1 / 6.0,
+        "untied": True,
+        "seq_len": 64,
+        "attn_mode": "selection",
+        "skip_attn": True,
+        "attn_bias": True,
+        "attn_head_bias": True,
+    },
+    "columnformer_ff_mix": {
+        "embed_dim": 384,
+        "depth": 6,
+        "recurrent": False,
+        "num_heads": 6,
+        "mlp_ratio": 1 / 6.0,
+        "untied": True,
+        "seq_len": 64,
+        "attn_mode": "mixing",
+        "skip_attn": True,
+        "attn_bias": True,
+        "attn_head_bias": True,
+    },
 }
 
 
 @pytest.mark.parametrize(
     "config",
-    ["transformer", "columnformer_ff", "columnformer_r"],
+    [
+        "transformer",
+        "columnformer_ff",
+        "columnformer_r",
+        "columnformer_ff_sel",
+        "columnformer_ff_mix",
+    ],
 )
 def test_model(config: str):
     torch.manual_seed(42)
