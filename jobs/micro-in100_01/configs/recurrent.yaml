@@ -1,0 +1,14 @@
+model: vision_columnformer_r_tiny_patch16_128
+attn_bias: false
+init_local_attn: false
+pos_embed: true
+desc: "full recurrent columnformer but no locality"
+
+dataset: micro-imagenet-100
+epochs: 10
+decay_lr: false
+warmup_fraction: 0.0
+weight_decay: 0.0
+amp: true
+wandb: true
+figure_interval: 1

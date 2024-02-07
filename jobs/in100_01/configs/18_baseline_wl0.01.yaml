@@ -1,0 +1,13 @@
+model: vision_transformer_tiny_patch16_128
+untied: "0,0,0"
+wiring_lambd: 0.01
+desc: "baseline ViT with wiring lambd 0.01"
+
+dataset: imagenet-100
+crop_min_scale: 0.33334
+hflip: 0.5
+color_jitter: 0.4
+epochs: 50
+amp: true
+wandb: true
+figure_interval: 5
