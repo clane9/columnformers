@@ -1,0 +1,15 @@
+model: vision_columnformer_r_tiny_patch16_128
+attn_bias: false
+init_local_attn: false
+pos_embed: true
+lr: 3.0e-04
+desc: "full recurrent columnformer but no locality and lower lr"
+
+dataset: imagenet-100
+crop_min_scale: 0.33334
+hflip: 0.5
+color_jitter: 0.4
+epochs: 50
+amp: true
+wandb: true
+figure_interval: 5

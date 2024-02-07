@@ -1,0 +1,13 @@
+model: vision_transformer_tiny_patch16_128
+untied: "1,1,1"
+no_vp: true
+desc: "all untied weights with no value or proj"
+
+dataset: imagenet-100
+crop_min_scale: 0.33334
+hflip: 0.5
+color_jitter: 0.4
+epochs: 50
+amp: true
+wandb: true
+figure_interval: 5

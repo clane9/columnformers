@@ -1,0 +1,14 @@
+model: vision_transformer_tiny_patch16_128
+untied: "1,1,1"
+num_heads: 1
+qk_head_dim: 64
+desc: "all untied weights with single head attention"
+
+dataset: micro-imagenet-100
+epochs: 10
+decay_lr: false
+warmup_fraction: 0.0
+weight_decay: 0.0
+amp: true
+wandb: true
+figure_interval: 1
