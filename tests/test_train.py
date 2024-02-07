@@ -43,10 +43,31 @@ configs = {
         overwrite=True,
         debug=True,
     ),
+    "selection_lowrank": train.Args(
+        model="vision_columnformer_ff_tiny_patch16_128",
+        attn_mode="selection",
+        mlp_rank=8,
+        dataset="debug-100",
+        workers=0,
+        batch_size=32,
+        out_dir="test_results",
+        name="debug_train_selection_lowrank",
+        overwrite=True,
+        debug=True,
+    ),
 }
 
 
-@pytest.mark.parametrize("config", ["default", "transformer", "feedforward", "wiring"])
+@pytest.mark.parametrize(
+    "config",
+    [
+        "default",
+        "transformer",
+        "feedforward",
+        "wiring",
+        "selection_lowrank",
+    ],
+)
 def test_train(config: str):
     args = configs[config]
     train.main(args)

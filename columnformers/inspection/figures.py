@@ -1,6 +1,6 @@
+import math
 from typing import Dict
 
-import matplotlib
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -9,9 +9,47 @@ from torch import nn
 
 from .registry import register_figure
 
-matplotlib.use("Agg")
 plt.rcParams["figure.dpi"] = 150
 plt.style.use("ggplot")
+
+
+@register_figure("attn_grid")
+class AttentionGrid(nn.Module):
+    def forward(self, state: Dict[str, torch.Tensor]):
+        attns = state.get("attns")
+        if attns is None:
+            return None
+        return attn_grid(attns)
+
+
+def attn_grid(
+    attns: torch.Tensor,
+    num_examples: int = 8,
+    stride: int = 1,
+    plotw: float = 3.4,
+    ploth: float = 3.0,
+):
+    num_examples = min(num_examples, len(attns))
+    # depth, B, nh, N, N
+    assert attns.ndim == 5
+
+    attns = attns.detach()[:num_examples]
+    attns = attns.mean(dim=2)
+    depth = attns.shape[0]
+
+    nr = num_examples
+    nc = depth // stride
+    f, axs = plt.subplots(nr, nc, figsize=(nc * plotw, nr * ploth))
+
+    for ii in range(nr):
+        for jj in range(nc):
+            plt.sca(axs[ii, jj])
+            imshow(attns[jj * stride, ii], colorbar=True)
+            if ii == 0:
+                plt.title(f"Attn ({jj})", fontsize=8)
+
+    plt.tight_layout(pad=0.75)
+    return f
 
 
 @register_figure("attn_feat_corr")
@@ -73,6 +111,70 @@ def attn_feat_corr(
         idx += 1
 
     plt.tight_layout(pad=0.5)
+    return f
+
+
+@register_figure("image_attn_maps")
+class ImageAttentionMaps(nn.Module):
+    def forward(self, state: Dict[str, torch.Tensor]):
+        # B, C, H, W
+        images = state.get("image")
+        # depth, B, nh, N, N
+        attns = state.get("attns")
+        if images is None or attns is None:
+            return None
+        # detect recurrent columnformer attention maps that don't match image
+        # bit of a hack
+        patch_size = images.shape[2] / math.sqrt(attns.shape[3])
+        if patch_size not in {8.0, 14.0, 16.0}:
+            return None
+        return image_attn_maps(images, attns)
+
+
+def image_attn_maps(
+    images: torch.Tensor,
+    attns: torch.Tensor,
+    num_examples: int = 8,
+    stride: int = 1,
+    plotw: float = 3.4,
+    ploth: float = 3.0,
+):
+    # TODO: do something about recurrent models
+    num_examples = min(num_examples, len(images))
+    # depth, B, nh, N, N
+    assert attns.ndim == 5
+    assert images.ndim == 4 and images.shape[1] == 3
+
+    images = images.detach()[:num_examples]
+    images = (images - images.min()) / (images.max() - images.min())
+    attns = attns.detach()[:num_examples]
+    attns = attns.mean(dim=2)
+
+    depth = attns.shape[0]
+    N = attns.shape[2]
+    H = math.isqrt(N)
+    # middle pixel position
+    row = col = H // 2
+    idx = row * H + col
+    patch_size = images.shape[2] // H
+
+    nr = num_examples
+    nc = 1 + depth // stride
+    f, axs = plt.subplots(nr, nc, figsize=(nc * plotw, nr * ploth))
+
+    for ii in range(nr):
+        plt.sca(axs[ii, 0])
+        imshow(images[ii])
+        x, y = (col + 0.5) * patch_size, (row + 0.5) * patch_size
+        plt.plot([x], [y], "ko", ms=10, mec="w", mew=2.0)
+
+        for jj in range(depth // stride):
+            plt.sca(axs[ii, 1 + jj])
+            attn = attns[jj * stride, ii, idx].reshape(H, H)
+            imshow(attn)
+            plt.plot([col], [row], "ko", ms=10, mec="w", mew=2.0)
+
+    plt.tight_layout(pad=0.75)
     return f
 
 

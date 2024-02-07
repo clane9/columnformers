@@ -150,7 +150,12 @@ class Args:
     desc: Optional[str] = HfArg(default=None, help="description to attach to run")
     # Figures and metrics
     figures: List[str] = HfArg(
-        default_factory=lambda: ["image_grid", "attn_feat_corr"],
+        default_factory=lambda: [
+            "image_grid",
+            "attn_feat_corr",
+            "attn_grid",
+            "image_attn_maps",
+        ],
         help=f"figures to generate ({', '.join(list_figures())})",
     )
     metrics: List[str] = HfArg(
