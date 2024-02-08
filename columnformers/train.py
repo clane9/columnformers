@@ -67,7 +67,7 @@ class Args:
     attn_mode: Optional[str] = HfArg(
         aliases=["--attnm"],
         default=None,
-        help="attention mode ('classic', 'selection', 'mixing')",
+        help="attention mode ('classic', 'selection', 'mixing', 'linmixing')",
     )
     skip_attn: Optional[bool] = HfArg(
         aliases=["--skip"], default=None, help="include attention skip connection"

@@ -185,7 +185,7 @@ class Mixing(nn.Module):
         seq_len: int,
         dim: int,
         num_heads: int = 8,
-        head_bias: bool = True,
+        softmax: bool = True,
         attn_drop: float = 0.0,
     ):
         super().__init__()
@@ -196,28 +196,24 @@ class Mixing(nn.Module):
         self.seq_len = seq_len
         self.num_heads = num_heads
         self.head_dim = dim // num_heads
+        self.softmax = softmax
 
         self.bias = nn.Parameter(torch.empty(seq_len, seq_len))
-        if head_bias:
-            self.head_bias = nn.Parameter(torch.empty(num_heads, seq_len, seq_len))
-        else:
-            self.register_parameter("head_bias", None)
+        self.head_bias = nn.Parameter(torch.empty(num_heads, seq_len, seq_len))
         self.attn_drop = nn.Dropout(attn_drop)
         self.reset_parameters()
 
     def reset_parameters(self) -> None:
         trunc_normal_(self.bias, std=0.02)
-        if self.head_bias is not None:
-            nn.init.zeros_(self.head_bias)
+        nn.init.zeros_(self.head_bias)
 
     def forward(self, x: torch.Tensor):
         B, N, C = x.shape
         x = x.reshape(B, N, self.num_heads, self.head_dim).transpose(1, 2)
 
-        attn = self.bias
-        if self.head_bias is not None:
-            attn = attn + self.head_bias
-        attn = attn.softmax(dim=-1)
+        attn = self.bias + self.head_bias
+        if self.softmax:
+            attn = attn.softmax(dim=-1)
         attn = self.attn_drop(attn)
 
         x = attn @ x
@@ -233,7 +229,7 @@ class Mixing(nn.Module):
     def extra_repr(self) -> str:
         return (
             f"{self.seq_len}, {self.dim}, num_heads={self.num_heads}, "
-            f"head_bias={self.head_bias is not None}"
+            f"softmax={self.softmax}"
         )
 
 
@@ -297,7 +293,7 @@ class Block(nn.Module):
         untied: Union[bool, Tuple[bool, bool, bool]] = False,
         seq_len: Optional[int] = None,
         mlp_rank: Optional[int] = None,
-        attn_mode: Literal["classic", "selection", "mixing"] = "classic",
+        attn_mode: Literal["classic", "selection", "mixing", "linmixing"] = "classic",
         skip_attn: bool = True,
         attn_bias: bool = False,
         attn_head_bias: bool = False,
@@ -314,24 +310,7 @@ class Block(nn.Module):
         norm_layer = partial(UntiedLayerNorm, seq_len) if untied_norm else nn.LayerNorm
 
         self.norm1 = norm_layer(dim)
-        if attn_mode == "mixing":
-            self.attn = Mixing(
-                seq_len=seq_len,
-                dim=dim,
-                num_heads=num_heads,
-                head_bias=attn_head_bias,
-                attn_drop=attn_drop,
-            )
-        elif attn_mode == "selection":
-            self.attn = Selection(
-                seq_len=seq_len,
-                dim=dim,
-                num_heads=num_heads,
-                bias=attn_bias,
-                head_bias=attn_head_bias,
-                attn_drop=attn_drop,
-            )
-        else:
+        if attn_mode == "classic":
             self.attn = Attention(
                 dim=dim,
                 num_heads=num_heads,
@@ -345,6 +324,32 @@ class Block(nn.Module):
                 attn_drop=attn_drop,
                 proj_drop=proj_drop,
             )
+        elif attn_mode == "selection":
+            self.attn = Selection(
+                seq_len=seq_len,
+                dim=dim,
+                num_heads=num_heads,
+                bias=attn_bias,
+                head_bias=attn_head_bias,
+                attn_drop=attn_drop,
+            )
+        elif attn_mode == "mixing":
+            self.attn = Mixing(
+                seq_len=seq_len,
+                dim=dim,
+                num_heads=num_heads,
+                attn_drop=attn_drop,
+            )
+        elif attn_mode == "linmixing":
+            self.attn = Mixing(
+                seq_len=seq_len,
+                dim=dim,
+                num_heads=num_heads,
+                softmax=False,
+                attn_drop=attn_drop,
+            )
+        else:
+            raise ValueError(f"Unknown attn_mode {attn_mode}")
         self.norm2 = norm_layer(dim)
         self.mlp = Mlp(
             in_features=dim,
@@ -379,7 +384,7 @@ class Columnformer(nn.Module):
         untied: Union[bool, Tuple[bool, bool, bool]] = False,
         seq_len: Optional[int] = None,
         mlp_rank: Optional[int] = None,
-        attn_mode: Literal["classic", "selection", "mixing"] = "classic",
+        attn_mode: Literal["classic", "selection", "mixing", "linmixing"] = "classic",
         skip_attn: bool = True,
         attn_bias: bool = False,
         attn_head_bias: bool = False,
