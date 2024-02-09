@@ -40,6 +40,3 @@ class ImageClassification(nn.Module):
             "wiring_loss": wiring_loss,
         }
         return loss, state
-
-    def extra_repr(self) -> str:
-        return f"wiring_lambd={self.wiring_lambd}"
