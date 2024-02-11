@@ -18,12 +18,26 @@ To update this document:
 - [@Pogodin2021] discusses the biological implausibility of weight sharing and proposes some strategies for training locally connected networks without weight sharing.
 - [@Finzi2023] shows that imposing topographic constraints on the hidden units of a CNN results in emergent processing "streams" similar to the primate dorsal/ventral stream.
 
-## Alternatives to transformers
+## Wiring cost minimization
 
+- [@Chen2006] is a classic paper studying wiring cost minimization as an explanatory principle of brain structure and function.
+- [@Blauch2022] studies how penalizing wiring cost can explain the emergence of functional topography.
+
+## Transformer variants and alternatives
+
+- [@Dehghani2019] introduce Universal Transformers which share weights across network depth. Very relevant.
+- [@Goel2022] uses similar recurrent unrolling in depth.
+- [@Tolstikhin2021] introduce MLP-Mixer, a similar architecture to the transformer but replacing classic self-attention with a much simpler communication mechanism using a static mixing MLP.
+- [@Liu2022] introduce ConvNext, a similar architecture to MLP-Mixer but using depthwise convolution communication.
+- [@Katharopoulos2020] replace softmax based attention with linear kernel dot product attention, reducing compute complexity.
+- [@He2024] introduces several simplifications to transformer blocks, including removing skip connections and value/projection weights. They use signal propagation as a way to evaluate architecture changes.
 - Attention free transformers (AFT) [@Zhai2021]. The idea of the additive bias in place of the multiplicative query is especially relevant.
-- RWKV with builds on AFT [@Peng2023].
-- Graph attention networks [@Velickovic2018].
+- RWKV [@Peng2023] takes inspiration from AFT.
 - Capsule networks [@Sabour2017], which have a similar inspiration to what we're exploring.
+
+## Transformers
+
+- [@Touvron2021] introduces techniques for effectively training large vision transformers, including `LayerScale`.
 
 ## General inspiration
 
