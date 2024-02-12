@@ -92,9 +92,9 @@ class LowRankLinear(nn.Module):
             nn.init.zeros_(self.bias)
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
-        # einsum here would be more consise but more flops (~5x)
-        weight = self.weight + (self.components @ self.coef.t()).permute(2, 0, 1)
-        # TODO: test if matmul is more efficient
+        # TODO: find out most efficient implmentation here
+        weight = (self.coef @ self.components.transpose(1, 2)).transpose(0, 1)
+        weight = self.weight + weight
         output = torch.einsum("bnc,ndc->bnd", input, weight)
         if self.bias is not None:
             output = output + self.bias
