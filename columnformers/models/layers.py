@@ -74,8 +74,8 @@ class LowRankLinear(nn.Module):
         self.rank = rank
 
         self.weight = nn.Parameter(torch.empty((out_features, in_features)))
-        self.factor1 = nn.Parameter(torch.empty((seq_len, rank)))
-        self.factor2 = nn.Parameter(torch.empty((out_features, in_features, rank)))
+        self.coef = nn.Parameter(torch.empty((seq_len, rank)))
+        self.components = nn.Parameter(torch.empty((out_features, in_features, rank)))
         if bias:
             self.bias = nn.Parameter(torch.empty(seq_len, out_features))
         else:
@@ -84,17 +84,17 @@ class LowRankLinear(nn.Module):
 
     def reset_parameters(self) -> None:
         trunc_normal_(self.weight, std=0.02)
-        # initializing factors to be zero means with start out with tied weights which
-        # the network can then differentiate
-        nn.init.zeros_(self.factor1)
-        nn.init.zeros_(self.factor2)
+        # initializing coefficients to zero means with start with tied weights which the
+        # network can then differentiate
+        nn.init.zeros_(self.coef)
+        trunc_normal_(self.components, std=0.02 * self.rank**-0.5)
         if self.bias is not None:
             nn.init.zeros_(self.bias)
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
-        weight = self.weight
         # einsum here would be more consise but more flops (~5x)
-        weight = weight + (self.factor1 @ self.factor2.transpose(1, 2)).transpose(0, 1)
+        weight = self.weight + (self.components @ self.coef.t()).permute(2, 0, 1)
+        # TODO: test if matmul is more efficient
         output = torch.einsum("bnc,ndc->bnd", input, weight)
         if self.bias is not None:
             output = output + self.bias
