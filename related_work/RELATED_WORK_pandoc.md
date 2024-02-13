@@ -23,19 +23,30 @@ To update this document:
 - [@Chen2006] is a classic paper studying wiring cost minimization as an explanatory principle of brain structure and function.
 - [@Blauch2022] studies how penalizing wiring cost can explain the emergence of functional topography.
 
-## Transformer variants and alternatives
+## Recurrence
 
 - [@Dehghani2019] introduce Universal Transformers which share weights across network depth. Very relevant.
 - [@Goel2022] uses similar recurrent unrolling in depth.
+
+## Weight untying
+
+- [@Fedus2022] reviews sparse mixture of expert (SMoE) models. The key idea of SMoE models is that for each layer, each token is processed by only a subset of parameters. This increases "capacity" without increasing compute. Similarly, we can view our sheet of columns as a giant mixture of experts that uses self-attention for routing.
+- Mixtral 8x7B [@Jiang2024] famously uses SMoE feedforward modules.
+
+## Communication mechanisms
+
 - [@Tolstikhin2021] introduce MLP-Mixer, a similar architecture to the transformer but replacing classic self-attention with a much simpler communication mechanism using a static mixing MLP.
 - [@Liu2022] introduce ConvNext, a similar architecture to MLP-Mixer but using depthwise convolution communication.
-- [@Katharopoulos2020] replace softmax based attention with linear kernel dot product attention, reducing compute complexity.
-- [@He2024] introduces several simplifications to transformer blocks, including removing skip connections and value/projection weights. They use signal propagation as a way to evaluate architecture changes.
 - Attention free transformers (AFT) [@Zhai2021]. The idea of the additive bias in place of the multiplicative query is especially relevant.
-- RWKV [@Peng2023] takes inspiration from AFT.
-- Capsule networks [@Sabour2017], which have a similar inspiration to what we're exploring.
+- RWKV [@Peng2023] takes inspiration from AFT, reformulating attention as recurrent communication, similar to [@Katharopoulos2020].
+- Capsule networks [@Sabour2017], which have a similar inspiration to what we're exploring, use dynamic routing.
 
-## Transformers
+## Transformer variants
+
+- [@He2024] introduces several simplifications to transformer blocks, including removing skip connections and value/projection weights. They use signal propagation as a way to evaluate architecture changes.
+- [@Shazeer2020] introduces the GLU variants to the feedforward module.
+
+## Training transformers
 
 - [@Touvron2021] introduces techniques for effectively training large vision transformers, including `LayerScale`.
 

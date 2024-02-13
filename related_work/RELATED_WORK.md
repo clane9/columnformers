@@ -27,40 +27,55 @@ To update this document:
 - \[7\] studies how penalizing wiring cost can explain the emergence of
   functional topography.
 
-## Transformer variants and alternatives
+## Recurrence
 
 - \[8\] introduce Universal Transformers which share weights across
   network depth. Very relevant.
 - \[9\] uses similar recurrent unrolling in depth.
-- \[10\] introduce MLP-Mixer, a similar architecture to the transformer
+
+## Weight untying
+
+- \[10\] reviews sparse mixture of expert (SMoE) models. The key idea of
+  SMoE models is that for each layer, each token is processed by only a
+  subset of parameters. This increases “capacity” without increasing
+  compute. Similarly, we can view our sheet of columns as a giant
+  mixture of experts that uses self-attention for routing.
+- Mixtral 8x7B \[11\] famously uses SMoE feedforward modules.
+
+## Communication mechanisms
+
+- \[12\] introduce MLP-Mixer, a similar architecture to the transformer
   but replacing classic self-attention with a much simpler communication
   mechanism using a static mixing MLP.
-- \[11\] introduce ConvNext, a similar architecture to MLP-Mixer but
+- \[13\] introduce ConvNext, a similar architecture to MLP-Mixer but
   using depthwise convolution communication.
-- \[12\] replace softmax based attention with linear kernel dot product
-  attention, reducing compute complexity.
-- \[13\] introduces several simplifications to transformer blocks,
-  including removing skip connections and value/projection weights. They
-  use signal propagation as a way to evaluate architecture changes.
 - Attention free transformers (AFT) \[14\]. The idea of the additive
   bias in place of the multiplicative query is especially relevant.
-- RWKV \[15\] takes inspiration from AFT.
-- Capsule networks \[16\], which have a similar inspiration to what
-  we’re exploring.
+- RWKV \[15\] takes inspiration from AFT, reformulating attention as
+  recurrent communication, similar to \[16\].
+- Capsule networks \[17\], which have a similar inspiration to what
+  we’re exploring, leverage dynamic routing.
 
-## Transformers
+## Transformer variants
 
-- \[17\] introduces techniques for effectively training large vision
+- \[18\] introduces several simplifications to transformer blocks,
+  including removing skip connections and value/projection weights. They
+  use signal propagation as a way to evaluate architecture changes.
+- \[19\] introduces the GLU variants to the feedforward module.
+
+## Training transformers
+
+- \[20\] introduces techniques for effectively training large vision
   transformers, including `LayerScale`.
 
 ## General inspiration
 
-- The perspective in \[18\] viewing the cortex as a uniform sheet of
+- The perspective in \[21\] viewing the cortex as a uniform sheet of
   computational modules, and thinking of attention as communication.
 - Geoff Hinton’s discussion of weight sharing and local constrastive
-  distillation in \[19\].
-- The discussion of geometry constraining brain function in \[20\].
-- Spatially embedded recurrent networks in \[21\].
+  distillation in \[22\].
+- The discussion of geometry constraining brain function in \[23\].
+- Spatially embedded recurrent networks in \[24\].
 
 ### References
 
@@ -159,9 +174,28 @@ Oh, Eds., Curran Associates, Inc., 2022, pp. 7328–7341. Available:
 
 </div>
 
-<div id="ref-Tolstikhin2021" class="csl-entry">
+<div id="ref-Fedus2022" class="csl-entry">
 
 <span class="csl-left-margin">\[10\]
+</span><span class="csl-right-inline">W. Fedus, J. Dean, and B. Zoph, “A
+review of sparse expert models in deep learning,” *arXiv preprint
+arXiv:2209.01667*, 2022, Available:
+<https://arxiv.org/abs/2209.01667></span>
+
+</div>
+
+<div id="ref-Jiang2024" class="csl-entry">
+
+<span class="csl-left-margin">\[11\]
+</span><span class="csl-right-inline">A. Q. Jiang *et al.*, “Mixtral of
+experts,” *arXiv preprint arXiv:2401.04088*, 2024, Available:
+<https://arxiv.org/abs/2401.04088></span>
+
+</div>
+
+<div id="ref-Tolstikhin2021" class="csl-entry">
+
+<span class="csl-left-margin">\[12\]
 </span><span class="csl-right-inline">I. O. Tolstikhin *et al.*,
 “MLP-mixer: An all-MLP architecture for vision,” in *Advances in neural
 information processing systems*, M. Ranzato, A. Beygelzimer, Y. Dauphin,
@@ -173,30 +207,10 @@ P. S. Liang, and J. W. Vaughan, Eds., Curran Associates, Inc., 2021, pp.
 
 <div id="ref-Liu2022" class="csl-entry">
 
-<span class="csl-left-margin">\[11\]
+<span class="csl-left-margin">\[13\]
 </span><span class="csl-right-inline">Z. Liu *et al.*, “A ConvNet for
 the 2020s,” in *Proceedings of the IEEE/CVF conference on computer
 vision and pattern recognition (CVPR)*, 2022, pp. 11976–11986.</span>
-
-</div>
-
-<div id="ref-Katharopoulos2020" class="csl-entry">
-
-<span class="csl-left-margin">\[12\]
-</span><span class="csl-right-inline">A. Katharopoulos, A. Vyas, N.
-Pappas, and F. Fleuret, “Transformers are rnns: Fast autoregressive
-transformers with linear attention,” in *International conference on
-machine learning*, PMLR, 2020, pp. 5156–5165.</span>
-
-</div>
-
-<div id="ref-He2024" class="csl-entry">
-
-<span class="csl-left-margin">\[13\]
-</span><span class="csl-right-inline">B. He and T. Hofmann, “Simplifying
-transformer blocks,” in *The twelfth international conference on
-learning representations*, 2024. Available:
-<https://openreview.net/forum?id=RtDok9eS3s></span>
 
 </div>
 
@@ -217,18 +231,47 @@ arXiv:2305.13048*, 2023.</span>
 
 </div>
 
-<div id="ref-Sabour2017" class="csl-entry">
+<div id="ref-Katharopoulos2020" class="csl-entry">
 
 <span class="csl-left-margin">\[16\]
+</span><span class="csl-right-inline">A. Katharopoulos, A. Vyas, N.
+Pappas, and F. Fleuret, “Transformers are rnns: Fast autoregressive
+transformers with linear attention,” in *International conference on
+machine learning*, PMLR, 2020, pp. 5156–5165.</span>
+
+</div>
+
+<div id="ref-Sabour2017" class="csl-entry">
+
+<span class="csl-left-margin">\[17\]
 </span><span class="csl-right-inline">S. Sabour, N. Frosst, and G. E.
 Hinton, “Dynamic routing between capsules,” *Advances in neural
 information processing systems*, 2017.</span>
 
 </div>
 
+<div id="ref-He2024" class="csl-entry">
+
+<span class="csl-left-margin">\[18\]
+</span><span class="csl-right-inline">B. He and T. Hofmann, “Simplifying
+transformer blocks,” in *The twelfth international conference on
+learning representations*, 2024. Available:
+<https://openreview.net/forum?id=RtDok9eS3s></span>
+
+</div>
+
+<div id="ref-Shazeer2020" class="csl-entry">
+
+<span class="csl-left-margin">\[19\]
+</span><span class="csl-right-inline">N. Shazeer, “Glu variants improve
+transformer,” *arXiv preprint arXiv:2002.05202*, 2020, Available:
+<https://arxiv.org/abs/2002.05202></span>
+
+</div>
+
 <div id="ref-Touvron2021" class="csl-entry">
 
-<span class="csl-left-margin">\[17\]
+<span class="csl-left-margin">\[20\]
 </span><span class="csl-right-inline">H. Touvron *et al.*, “Going deeper
 with image transformers,” in *Proceedings of the IEEE/CVF international
 conference on computer vision*, 2021, pp. 32–42.</span>
@@ -237,7 +280,7 @@ conference on computer vision*, 2021, pp. 32–42.</span>
 
 <div id="ref-Karpathy2023" class="csl-entry">
 
-<span class="csl-left-margin">\[18\]
+<span class="csl-left-margin">\[21\]
 </span><span class="csl-right-inline">A. Karpathy, “Introduction to
 transformers.” <https://youtu.be/XfpMkf4rD6E?si=AM9AWDegUaFB7KCe>,
 2023.</span>
@@ -246,7 +289,7 @@ transformers.” <https://youtu.be/XfpMkf4rD6E?si=AM9AWDegUaFB7KCe>,
 
 <div id="ref-Hinton2022" class="csl-entry">
 
-<span class="csl-left-margin">\[19\]
+<span class="csl-left-margin">\[22\]
 </span><span class="csl-right-inline">G. Hinton, “The robot brains
 season 2 episode 22.”
 <https://www.therobotbrains.ai/who-is-geoff-hinton-part-two>,
@@ -256,7 +299,7 @@ season 2 episode 22.”
 
 <div id="ref-Pang2023A" class="csl-entry">
 
-<span class="csl-left-margin">\[20\]
+<span class="csl-left-margin">\[23\]
 </span><span class="csl-right-inline">J. C. Pang *et al.*, “Geometric
 constraints on human brain function,” *Nature*, 2023.</span>
 
@@ -264,7 +307,7 @@ constraints on human brain function,” *Nature*, 2023.</span>
 
 <div id="ref-Achterberg2023" class="csl-entry">
 
-<span class="csl-left-margin">\[21\]
+<span class="csl-left-margin">\[24\]
 </span><span class="csl-right-inline">J. Achterberg *et al.*, “Spatially
 embedded recurrent neural networks reveal widespread links between
 structural and functional neuroscience findings,” *Nature Machine
@@ -274,7 +317,7 @@ Intelligence*, 2023.</span>
 
 <div id="ref-Puxeddu2024" class="csl-entry">
 
-<span class="csl-left-margin">\[22\]
+<span class="csl-left-margin">\[25\]
 </span><span class="csl-right-inline">J. A. S. Puxeddu Maria Grazia AND
 Faskowitz, “Relation of connectome topology to brain volume across 103
 mammalian species,” *PLOS Biology*, Feb. 2024, doi:
@@ -284,7 +327,7 @@ mammalian species,” *PLOS Biology*, Feb. 2024, doi:
 
 <div id="ref-Velickovic2018" class="csl-entry">
 
-<span class="csl-left-margin">\[23\]
+<span class="csl-left-margin">\[26\]
 </span><span class="csl-right-inline">P. Veličković *et al.*, “Graph
 attention networks,” in *International conference on learning
 representations*, 2018.</span>
