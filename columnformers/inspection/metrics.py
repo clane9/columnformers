@@ -11,7 +11,7 @@ from .registry import register_metric
 class AttentionEntropy(nn.Module):
     def forward(self, state: Dict[str, torch.Tensor]):
         attns = state.get("attns")
-        if attns is None:
+        if attns is None or attns.min() < 0:
             return float("nan")
         return attention_entropy(attns).item()
 

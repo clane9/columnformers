@@ -1,5 +1,5 @@
 import math
-from typing import Dict
+from typing import Dict, Literal, Optional
 
 import numpy as np
 import torch
@@ -26,16 +26,17 @@ def attn_grid(
     attns: torch.Tensor,
     num_examples: int = 8,
     stride: int = 1,
+    head: Optional[int] = 0,
     plotw: float = 3.4,
     ploth: float = 3.0,
 ):
     num_examples = min(num_examples, len(attns))
-    # depth, B, nh, N, N
+    # B, depth, nh, N, N
     assert attns.ndim == 5
 
     attns = attns.detach()[:num_examples]
-    attns = attns.mean(dim=2)
-    depth = attns.shape[0]
+    attns = attns.mean(dim=2) if head is None else attns[:, :, head]
+    depth = attns.shape[1]
 
     nr = num_examples
     nc = depth // stride
@@ -44,73 +45,53 @@ def attn_grid(
     for ii in range(nr):
         for jj in range(nc):
             plt.sca(axs[ii, jj])
-            imshow(attns[jj * stride, ii], colorbar=True)
+            imshow(attns[ii, jj * stride], colorbar=True)
             if ii == 0:
-                plt.title(f"Attn ({jj})", fontsize=8)
+                plt.title(f"Attn (lyr={jj * stride})", fontsize=10)
 
     plt.tight_layout(pad=0.75)
     return f
 
 
-@register_figure("attn_feat_corr")
-class AttentionFeatureCorrelation(nn.Module):
-    def __init__(self, step: int = -1):
-        super().__init__()
-        self.step = step
-
+@register_figure("feat_corr_grid")
+class FeatureCorrGrid(nn.Module):
     def forward(self, state: Dict[str, torch.Tensor]):
-        attns = state.get("attns")
         features = state.get("features")
-        if attns is None or features is None:
+        if features is None:
             return None
-
-        # depth, B, nh, N, N
-        attn = attns.detach()[self.step].mean(dim=1)
-        # depth, B, N, D
-        feat = features.detach()[self.step]
-        return attn_feat_corr(attn, feat)
-
-    def extra_repr(self) -> str:
-        return f"step={self.step}"
+        return feat_corr_grid(features)
 
 
-def attn_feat_corr(
-    attn: torch.Tensor,
-    feat: torch.Tensor,
-    num_examples: int = 16,
-    num_col: int = 4,
+def feat_corr_grid(
+    features: torch.Tensor,
+    num_examples: int = 8,
+    stride: int = 1,
+    normalize: bool = True,
     plotw: float = 3.4,
     ploth: float = 3.0,
 ):
-    num_examples = min(num_examples, len(attn))
-    assert attn.ndim == feat.ndim == 3
-    assert num_examples % num_col == 0
+    num_examples = min(num_examples, len(features))
+    # B, depth, N, D
+    assert features.ndim == 4
 
-    attn = attn.detach()[:num_examples]
-    feat = feat.detach()[:num_examples]
-    norm_feat = F.normalize(feat, dim=2)
-    feat_corr = norm_feat @ norm_feat.transpose(1, 2)
+    features = features.detach()[:num_examples]
+    if normalize:
+        features = F.normalize(features, dim=-1)
+    feat_corr = features @ features.transpose(-2, -1)
+    depth = features.shape[1]
 
-    nr = num_examples // num_col
-    nc = 2 * num_col
+    nr = num_examples
+    nc = depth // stride
     f, axs = plt.subplots(nr, nc, figsize=(nc * plotw, nr * ploth))
-    axs = axs.flatten()
 
-    idx = 0
-    for ii in range(num_examples):
-        plt.sca(axs[idx])
-        imshow(attn[ii], colorbar=True)
-        if ii < num_col:
-            plt.title("Attn", fontsize=8)
-        idx += 1
+    for ii in range(nr):
+        for jj in range(nc):
+            plt.sca(axs[ii, jj])
+            imshow(feat_corr[ii, jj * stride], colorbar=False)
+            if ii == 0:
+                plt.title(f"Feat corr (lyr={jj * stride})", fontsize=10)
 
-        plt.sca(axs[idx])
-        imshow(feat_corr[ii], colorbar=True)
-        if ii < num_col:
-            plt.title("Feat corr", fontsize=8)
-        idx += 1
-
-    plt.tight_layout(pad=0.5)
+    plt.tight_layout(pad=0.75)
     return f
 
 
@@ -136,26 +117,35 @@ def image_attn_maps(
     attns: torch.Tensor,
     num_examples: int = 8,
     stride: int = 1,
+    head: Optional[int] = 0,
+    pos: Literal["center", "random"] = "random",
     plotw: float = 3.4,
     ploth: float = 3.0,
 ):
-    # TODO: do something about recurrent models
     num_examples = min(num_examples, len(images))
-    # depth, B, nh, N, N
+    # B, depth, nh, N, N
     assert attns.ndim == 5
+    # B, C, H, W
     assert images.ndim == 4 and images.shape[1] == 3
 
     images = images.detach()[:num_examples]
     images = (images - images.min()) / (images.max() - images.min())
-    attns = attns.detach()[:num_examples]
-    attns = attns.mean(dim=2)
 
-    depth = attns.shape[0]
+    attns = attns.detach()[:num_examples]
+    attns = attns.mean(dim=2) if head is None else attns[:, :, head]
+
+    # handle case of static attention
+    if len(attns) == 1:
+        attns = attns.expand(num_examples, -1, -1, -1)
+
+    depth = attns.shape[1]
     N = attns.shape[2]
     H = math.isqrt(N)
-    # middle pixel position
-    row = col = H // 2
-    idx = row * H + col
+    if pos == "center":
+        row = col = H // 2
+        indices = np.full(num_examples, row * H + col)
+    else:
+        indices = np.random.randint(0, N, num_examples)
     patch_size = images.shape[2] // H
 
     nr = num_examples
@@ -165,12 +155,15 @@ def image_attn_maps(
     for ii in range(nr):
         plt.sca(axs[ii, 0])
         imshow(images[ii])
+
+        idx = indices[ii]
+        row, col = idx // H, idx % H
         x, y = (col + 0.5) * patch_size, (row + 0.5) * patch_size
         plt.plot([x], [y], "ko", ms=10, mec="w", mew=2.0)
 
         for jj in range(depth // stride):
             plt.sca(axs[ii, 1 + jj])
-            attn = attns[jj * stride, ii, idx].reshape(H, H)
+            attn = attns[ii, jj * stride, idx].reshape(H, H)
             imshow(attn)
             plt.plot([col], [row], "ko", ms=10, mec="w", mew=2.0)
 
