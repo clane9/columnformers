@@ -72,19 +72,17 @@ CONFIGS = {
         "attn_bias": True,
         "attn_head_bias": True,
     },
-    "columnformer_ff_lr": {
+    "columnformer_ff_sumoe": {
         "embed_dim": 384,
         "depth": 6,
         "recurrent": False,
         "num_heads": 6,
-        "mlp_ratio": 1 / 6.0,
-        "untied": True,
+        "mlp_ratio": 0.5,
         "seq_len": 64,
-        "mlp_rank": 8,
-        "attn_mode": "selection",
+        "mlp_rank": 2,
+        "attn_mode": "classic",
         "skip_attn": True,
         "attn_bias": True,
-        "attn_head_bias": True,
     },
 }
 
@@ -97,7 +95,7 @@ CONFIGS = {
         "columnformer_r",
         "columnformer_ff_sel",
         "columnformer_ff_mix",
-        "columnformer_ff_lr",
+        "columnformer_ff_sumoe",
     ],
 )
 def test_model(config: str):

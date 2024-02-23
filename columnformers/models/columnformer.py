@@ -1,5 +1,5 @@
 from functools import partial
-from typing import Dict, Literal, Optional, Tuple, Union
+from typing import Dict, List, Literal, Optional, Tuple, Union
 
 import torch
 import torch.nn.functional as F
@@ -7,7 +7,7 @@ from timm.layers import trunc_normal_
 from timm.layers.helpers import to_2tuple, to_3tuple
 from torch import nn
 
-from .layers import Layer, LowRankLinear, UntiedLayerNorm, UntiedLinear
+from .layers import Layer, MixtureLinear, UntiedLayerNorm, UntiedLinear
 
 
 class Attention(nn.Module):
@@ -220,7 +220,7 @@ class Mixing(nn.Module):
         x = x.transpose(1, 2).reshape(B, N, C)
 
         # expand to be consistent with other attention mechanisms
-        attn = attn.expand(B, -1, -1, -1)
+        attn = attn.unsqueeze(0)
         return x, attn
 
     def init_bias(self, bias: torch.Tensor):
@@ -246,27 +246,23 @@ class Mlp(nn.Module):
         in_features: int,
         hidden_features: Optional[int] = None,
         out_features: Optional[int] = None,
-        untied: bool = False,
         seq_len: Optional[int] = None,
-        rank: Optional[int] = None,
+        untied: bool = False,
         act_layer: Optional[Layer] = nn.GELU,
         bias: Union[bool, Tuple[bool, bool]] = True,
         drop: Union[float, Tuple[float, float]] = 0.0,
     ):
         super().__init__()
         assert not untied or seq_len, "seq_len required for untied"
-        assert not rank or untied, "untied required if using rank"
 
         hidden_features = hidden_features or in_features
         out_features = out_features or in_features
         biases = to_2tuple(bias)
         drop_probs = to_2tuple(drop)
-        if not untied:
-            linear_layer = nn.Linear
-        elif not rank:
+        if untied:
             linear_layer = partial(UntiedLinear, seq_len)
         else:
-            linear_layer = partial(LowRankLinear, seq_len, rank=rank)
+            linear_layer = nn.Linear
         act_layer = nn.Identity if act_layer is None else act_layer
 
         self.fc1 = linear_layer(in_features, hidden_features, bias=biases[0])
@@ -280,6 +276,61 @@ class Mlp(nn.Module):
         x = self.act(x)
         x = self.drop1(x)
         x = self.fc2(x)
+        x = self.drop2(x)
+        return x
+
+
+class MixtureMlp(nn.Module):
+    """
+    Mixture of MLP experts. The MLP weights for each token in the sequence are computed
+    as a linear combination of the individual expert weights. A bit similar to model
+    soups. The linear combination coefficients are static per token in the sequence.
+    """
+
+    def __init__(
+        self,
+        in_features: int,
+        hidden_features: Optional[int] = None,
+        out_features: Optional[int] = None,
+        seq_len: Optional[int] = None,
+        rank: int = 16,
+        act_layer: Optional[Layer] = nn.GELU,
+        bias: Union[bool, Tuple[bool, bool]] = True,
+        drop: Union[float, Tuple[float, float]] = 0.0,
+    ):
+        super().__init__()
+        assert seq_len is not None, "seq_len required for MixtureMLP"
+
+        self.rank = rank
+        hidden_features = hidden_features or in_features
+        out_features = out_features or in_features
+        biases = to_2tuple(bias)
+        drop_probs = to_2tuple(drop)
+        act_layer = nn.Identity if act_layer is None else act_layer
+
+        self.fc1 = MixtureLinear(
+            in_features, hidden_features, rank=rank, bias=biases[0]
+        )
+        self.act = act_layer()
+        self.drop1 = nn.Dropout(drop_probs[0])
+        self.fc2 = MixtureLinear(
+            hidden_features, out_features, rank=rank, bias=biases[1]
+        )
+        self.drop2 = nn.Dropout(drop_probs[1])
+
+        self.coef = nn.Parameter(torch.empty(seq_len, rank))
+        self.reset_parameters()
+
+    def reset_parameters(self) -> None:
+        std = (0.02 * self.rank**-0.5) ** 0.5
+        trunc_normal_(self.coef, std=std)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # TODO: what about softmax coefficients?
+        x = self.fc1(x, self.coef)
+        x = self.act(x)
+        x = self.drop1(x)
+        x = self.fc2(x, self.coef)
         x = self.drop2(x)
         return x
 
@@ -351,15 +402,24 @@ class Block(nn.Module):
         else:
             raise ValueError(f"Unknown attn_mode {attn_mode}")
         self.norm2 = norm_layer(dim)
-        self.mlp = Mlp(
-            in_features=dim,
-            hidden_features=int(dim * mlp_ratio),
-            untied=untied_mlp,
-            seq_len=seq_len,
-            rank=mlp_rank,
-            act_layer=act_layer,
-            drop=proj_drop,
-        )
+        if mlp_rank is None:
+            self.mlp = Mlp(
+                in_features=dim,
+                hidden_features=int(dim * mlp_ratio),
+                seq_len=seq_len,
+                untied=untied_mlp,
+                act_layer=act_layer,
+                drop=proj_drop,
+            )
+        else:
+            self.mlp = MixtureMlp(
+                in_features=dim,
+                hidden_features=int(dim * mlp_ratio),
+                seq_len=seq_len,
+                rank=mlp_rank,
+                act_layer=act_layer,
+                drop=proj_drop,
+            )
 
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         pooled, attn = self.attn(self.norm1(x))
@@ -383,7 +443,7 @@ class Columnformer(nn.Module):
         mlp_ratio: float = 4.0,
         untied: Union[bool, Tuple[bool, bool, bool]] = False,
         seq_len: Optional[int] = None,
-        mlp_rank: Optional[int] = None,
+        mlp_rank: Optional[Union[int, List[int]]] = None,
         attn_mode: Literal["classic", "selection", "mixing", "linmixing"] = "classic",
         skip_attn: bool = True,
         attn_bias: bool = False,
@@ -417,6 +477,10 @@ class Columnformer(nn.Module):
         self.local_attn_sigma = local_attn_sigma
 
         num_blocks = 1 if recurrent else depth
+        mlp_ranks = mlp_rank if isinstance(mlp_rank, list) else [mlp_rank]
+        if len(mlp_ranks) == 1:
+            mlp_ranks = num_blocks * mlp_ranks
+
         self.blocks = nn.ModuleList(
             Block(
                 dim=embed_dim,
@@ -424,7 +488,7 @@ class Columnformer(nn.Module):
                 mlp_ratio=mlp_ratio,
                 untied=untied,
                 seq_len=seq_len,
-                mlp_rank=mlp_rank,
+                mlp_rank=mlp_ranks[ii],
                 attn_mode=attn_mode,
                 skip_attn=skip_attn,
                 attn_bias=attn_bias,
@@ -436,7 +500,7 @@ class Columnformer(nn.Module):
                 proj_drop=proj_drop_rate,
                 act_layer=act_layer,
             )
-            for _ in range(num_blocks)
+            for ii in range(num_blocks)
         )
 
         self.register_buffer("geometry", geometry)
@@ -460,8 +524,8 @@ class Columnformer(nn.Module):
             x, attn = self.blocks[0 if self.recurrent else step](x)
             features.append(x)
             attns.append(attn)
-        features = torch.stack(features)
-        attns = torch.stack(attns)
+        features = torch.stack(features, dim=1)  # B, depth, N, D
+        attns = torch.stack(attns, dim=1)  # B, depth, nh, N, N
 
         state = {"features": features, "attns": attns}
         return x, state
