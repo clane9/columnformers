@@ -123,7 +123,7 @@ def create_dataset(
 
 def _get_batch_transform(image_transform: Callable[[I.Image], torch.Tensor]):
     def transform(
-        batch: Dict[str, List[Union[I.Image, Any]]]
+        batch: Dict[str, List[Union[I.Image, Any]]],
     ) -> Dict[str, torch.Tensor]:
         batch["image"] = [image_transform(img.convert("RGB")) for img in batch["image"]]
         return batch
