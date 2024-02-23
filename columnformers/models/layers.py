@@ -50,60 +50,52 @@ class UntiedLinear(nn.Module):
         )
 
 
-class LowRankLinear(nn.Module):
+class MixtureLinear(nn.Module):
     """
-    Linear layer with factorized low-rank weights across the sequence.
-
-    Note that tied weights corresponds to the rank 1 case, whereas untied weights
-    corresponds to the full rank case. Thus, by adapting the rank, we can slide between
-    tied and untied weights.
+    Mixture of linear layers. The linear weights for each token in the sequence are
+    computed as a linear combination of the weights in the mixture.
     """
 
     def __init__(
         self,
-        seq_len: int,
         in_features: int,
         out_features: int,
         rank: int = 16,
         bias: bool = True,
     ):
         super().__init__()
-        self.seq_len = seq_len
         self.in_features = in_features
         self.out_features = out_features
         self.rank = rank
 
-        self.weight = nn.Parameter(torch.empty((out_features, in_features)))
-        self.coef = nn.Parameter(torch.empty((seq_len, rank)))
-        self.components = nn.Parameter(torch.empty((out_features, in_features, rank)))
+        self.weight = nn.Parameter(torch.empty((out_features, in_features, rank)))
         if bias:
-            self.bias = nn.Parameter(torch.empty(seq_len, out_features))
+            self.bias = nn.Parameter(torch.empty(out_features, rank))
         else:
             self.register_parameter("bias", None)
         self.reset_parameters()
 
     def reset_parameters(self) -> None:
-        trunc_normal_(self.weight, std=0.02)
-        # initializing coefficients to zero means with start with tied weights which the
-        # network can then differentiate
-        nn.init.zeros_(self.coef)
-        trunc_normal_(self.components, std=0.02 * self.rank**-0.5)
+        std = (0.02 * self.rank**-0.5) ** 0.5
+        trunc_normal_(self.weight, std=std)
         if self.bias is not None:
             nn.init.zeros_(self.bias)
 
-    def forward(self, input: torch.Tensor) -> torch.Tensor:
-        # TODO: find out most efficient implmentation here
-        weight = (self.coef @ self.components.transpose(1, 2)).transpose(0, 1)
-        weight = self.weight + weight
+    def forward(self, input: torch.Tensor, coef: torch.Tensor) -> torch.Tensor:
+        # Nb, this implementation for some reason uses significantly fewer flops
+        # compared to equivalent alternatives (e.g. einsum) for some reason.
+        weight = (coef @ self.weight.transpose(1, 2)).transpose(0, 1)
+        if self.bias is not None:
+            bias = coef @ self.bias.t()
         output = torch.einsum("bnc,ndc->bnd", input, weight)
         if self.bias is not None:
-            output = output + self.bias
+            output = output + bias
         return output
 
     def extra_repr(self) -> str:
         return (
-            f"{self.seq_len}, {self.in_features}, {self.out_features}, "
-            f"rank={self.rank}, bias={self.bias is not None}"
+            f"{self.in_features}, {self.out_features}, rank={self.rank}, "
+            f"bias={self.bias is not None}"
         )
 
 
