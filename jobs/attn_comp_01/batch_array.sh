@@ -7,7 +7,8 @@
 #SBATCH --gpus=v100-32:1
 #SBATCH --time=04:00:00
 # #SBATCH --array=0
-#SBATCH --array=1-3
+# #SBATCH --array=1-3
+#SBATCH --array=4-5
 #SBATCH --account=med230001p
 
 # Set some environment variables
@@ -27,6 +28,8 @@ NAMES=(
     "02_untied_all_bias"
     "03_untied_all_sel"
     "04_untied_all_mix"
+    "05_untied_all_linmix"
+    "06_untied_all_linmix_dw"
 )
 
 NAME="${NAMES[SLURM_ARRAY_TASK_ID]}"
