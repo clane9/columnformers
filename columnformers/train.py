@@ -61,8 +61,10 @@ class Args:
         help="untied mode coded as str of 1 or 3 comma separated values for norm, attn, "
         "mlp. e.g. '1' or '1,0,0'",
     )
-    mlp_rank: Optional[int] = HfArg(
-        default=None, help="rank of factorized untied MLP weights"
+    mlp_rank: Optional[str] = HfArg(
+        default=None,
+        help="rank(s) of SuMoE MLPs as 1 or `depth` comma separated values. "
+        "e.g. '2', '1,1,2,2,4,4'",
     )
     attn_mode: Optional[str] = HfArg(
         aliases=["--attnm"],
@@ -152,8 +154,8 @@ class Args:
     figures: List[str] = HfArg(
         default_factory=lambda: [
             "image_grid",
-            "attn_feat_corr",
             "attn_grid",
+            "feat_corr_grid",
             "image_attn_maps",
         ],
         help=f"figures to generate ({', '.join(list_figures())})",
@@ -304,8 +306,8 @@ def main(args: Args):
         depth_offset=args.depth_offset,
         num_heads=args.num_heads,
         mlp_ratio=args.mlp_ratio,
-        untied=parse_untied(args.untied),
-        mlp_rank=args.mlp_rank,
+        untied=parse_csv(args.untied, typ=lambda v: bool(int(v))),
+        mlp_rank=parse_csv(args.mlp_rank, typ=int),
         attn_mode=args.attn_mode,
         skip_attn=args.skip_attn,
         attn_bias=args.attn_bias,
@@ -738,12 +740,12 @@ def validate(
     return loss_m.avg, metrics
 
 
-def parse_untied(untied: Optional[str]):
-    if untied is not None:
-        untied = tuple([bool(int(val)) for val in untied.strip().split(",")])
-        if len(untied) == 1:
-            untied = untied[0]
-    return untied
+def parse_csv(text: Optional[str], typ: type = int):
+    if text is not None:
+        text = [typ(val) for val in text.strip().split(",")]
+        if len(text) == 1:
+            text = text[0]
+    return text
 
 
 @torch.no_grad()

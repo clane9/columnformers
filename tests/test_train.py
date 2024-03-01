@@ -43,15 +43,16 @@ configs = {
         overwrite=True,
         debug=True,
     ),
-    "selection_lowrank": train.Args(
-        model="vision_columnformer_ff_tiny_patch16_128",
-        attn_mode="selection",
-        mlp_rank=8,
+    "sumoe": train.Args(
+        model="vision_transformer_tiny_patch16_128",
+        mlp_ratio=0.5,
+        mlp_rank="1,1,2,2,4,4",
+        attn_bias=True,
         dataset="debug-100",
         workers=0,
         batch_size=32,
         out_dir="test_results",
-        name="debug_train_selection_lowrank",
+        name="debug_train_sumoe",
         overwrite=True,
         debug=True,
     ),
@@ -65,7 +66,7 @@ configs = {
         "transformer",
         "feedforward",
         "wiring",
-        "selection_lowrank",
+        "sumoe",
     ],
 )
 def test_train(config: str):
