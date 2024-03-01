@@ -402,7 +402,7 @@ class Block(nn.Module):
         else:
             raise ValueError(f"Unknown attn_mode {attn_mode}")
         self.norm2 = norm_layer(dim)
-        if mlp_rank is None:
+        if mlp_rank is None or mlp_rank == 1:
             self.mlp = Mlp(
                 in_features=dim,
                 hidden_features=int(dim * mlp_ratio),

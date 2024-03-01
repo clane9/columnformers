@@ -87,7 +87,7 @@ def feat_corr_grid(
     for ii in range(nr):
         for jj in range(nc):
             plt.sca(axs[ii, jj])
-            imshow(feat_corr[ii, jj * stride], colorbar=False)
+            imshow(feat_corr[ii, jj * stride], colorbar=True)
             if ii == 0:
                 plt.title(f"Feat corr (lyr={jj * stride})", fontsize=10)
 
