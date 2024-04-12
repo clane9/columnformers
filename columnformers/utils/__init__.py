@@ -12,7 +12,7 @@ from .optim import (  # noqa
     backward_step,
     clip_grad_,
     create_optimizer,
-    get_no_decay_keys,
+    collect_no_weight_decay,
     load_checkpoint,
     save_checkpoint,
     set_requires_grad,

@@ -17,6 +17,7 @@ from torch.nn.utils import clip_grad_norm_
 from torch.optim import Optimizer
 
 LRSchedule = Callable[[int], float]
+ParamFilter = Callable[[str, nn.Parameter], bool]
 
 
 def backward_step(
@@ -135,19 +136,47 @@ def create_optimizer(
     return optimizer
 
 
-def get_no_decay_keys(model: nn.Module) -> List[str]:
+def default_no_decay_filter(name: str, param: nn.Parameter) -> bool:
+    return (
+        not param.requires_grad
+        or name.endswith((".bias", "embed", "token"))
+        or param.ndim <= 1
+    )
+
+
+def collect_no_weight_decay(
+    module: nn.Module,
+    parents: Optional[List[str]] = None,
+    no_decay_filter: Optional[ParamFilter] = default_no_decay_filter,
+):
     """
     Return a list of parameter names that should not be weight decayed.
 
-    Don't decay biases, layernorms, embeddings, or special tokens. A combination of
-    what's done in timm and nanoGPT.
+    Recursively calls child modules' `no_weight_decay()` method (if implemented).
+
+    Default `no_decay_filter` doesn't decay biases or params <= 1 dim (i.e. norm
+    params). Same as timm.
     """
-    keys = [
-        name
-        for name, p in model.named_parameters()
-        if name.endswith(("bias", "embed", "token")) or ".norm" in name
-    ]
-    return keys
+    is_root = parents is None
+    parents = parents or []
+    no_decay_list = []
+
+    # add custom no decay params recursively
+    if hasattr(module, "no_weight_decay"):
+        for param in module.no_weight_decay():
+            no_decay_list.append(".".join(parents + [param]))
+
+    for name, child in module.named_children():
+        no_decay_list.extend(collect_no_weight_decay(child, parents=parents + [name]))
+
+    # add params passing filters for root model
+    if is_root and no_decay_filter is not None:
+        no_decay_set = set(no_decay_list)
+        for name, param in module.named_parameters():
+            if no_decay_filter(name, param) and name not in no_decay_set:
+                no_decay_list.append(name)
+
+    return no_decay_list
 
 
 def set_requires_grad(

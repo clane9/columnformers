@@ -347,7 +347,7 @@ def main(args: Args):
 
     # Optimizer
     logging.info("Creating optimizer")
-    no_decay_keys = ut.get_no_decay_keys(model)
+    no_decay_keys = ut.collect_no_weight_decay(model)
     optimizer = ut.create_optimizer(
         model,
         no_decay_keys=no_decay_keys,
