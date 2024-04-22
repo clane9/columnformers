@@ -143,7 +143,36 @@ def vision_transformer_tiny_patch16_128(**kwargs):
         "recurrent": False,
         "seq_len": 64,
     }
-    encoder_defaults = {"num_heads": 6, "untied": False}
+    encoder_defaults = {"num_heads": 6}
+    params = {"img_size": 128, "patch_size": 16}
+    defaults = {}
+    model = _create_vision_columnformer(
+        widths=(8,),
+        encoder_params=encoder_params,
+        encoder_defaults=encoder_defaults,
+        params=params,
+        defaults=defaults,
+        **kwargs,
+    )
+    return model
+
+
+@register_model
+def vision_moemixer_tiny_patch16_128(**kwargs):
+    encoder_params = {
+        "embed_dim": 384,
+        "depth": 6,
+        "recurrent": False,
+        "seq_len": 64,
+    }
+    encoder_defaults = {
+        "attn_mode": "linmixing",
+        "mlp_mode": "moe",
+        "norm_mode": "classic",
+        "num_heads": 6,
+        "moe_experts": [1, 1, 2, 2, 4, 4],
+        "moe_conserve": True,
+    }
     params = {"img_size": 128, "patch_size": 16}
     defaults = {}
     model = _create_vision_columnformer(
@@ -166,16 +195,18 @@ def vision_columnformer_ff_tiny_patch16_128(**kwargs):
         "seq_len": 64,
     }
     encoder_defaults = {
+        "attn_mode": "untied",
+        "mlp_mode": "untied",
+        "norm_mode": "untied",
         "num_heads": 1,
         "mlp_ratio": 1 / 6.0,
-        "untied": True,
         "attn_bias": True,
         "qk_head_dim": 64,
         "no_vp": True,
         "init_local_attn": True,
     }
     params = {"img_size": 128, "patch_size": 16}
-    defaults = {"pos_embed": False}
+    defaults = {}
     model = _create_vision_columnformer(
         widths=(8,),
         encoder_params=encoder_params,
@@ -196,9 +227,11 @@ def vision_columnformer_r_tiny_patch16_128(**kwargs):
         "seq_len": 384,
     }
     encoder_defaults = {
+        "attn_mode": "untied",
+        "mlp_mode": "untied",
+        "norm_mode": "untied",
         "num_heads": 1,
         "mlp_ratio": 1 / 6.0,
-        "untied": True,
         "skip_attn": False,
         "attn_bias": True,
         "qk_head_dim": 64,
@@ -206,7 +239,7 @@ def vision_columnformer_r_tiny_patch16_128(**kwargs):
         "init_local_attn": True,
     }
     params = {"img_size": 128, "patch_size": 16}
-    defaults = {"pos_embed": False}
+    defaults = {}
     model = _create_vision_columnformer(
         widths=6 * (8,),
         encoder_params=encoder_params,
