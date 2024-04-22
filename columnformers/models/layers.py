@@ -1,4 +1,4 @@
-from typing import Callable
+from typing import Callable, List
 
 import torch
 import torch.nn.functional as F
@@ -76,12 +76,13 @@ class MixtureLinear(nn.Module):
         self.reset_parameters()
 
     def reset_parameters(self) -> None:
-        std = (0.02 * self.rank**-0.5) ** 0.5
-        trunc_normal_(self.weight, std=std)
+        trunc_normal_(self.weight, std=0.02)
         if self.bias is not None:
             nn.init.zeros_(self.bias)
 
     def forward(self, input: torch.Tensor, coef: torch.Tensor) -> torch.Tensor:
+        # input: (B, N, C)
+        # coef: (N, R)
         # Nb, this implementation for some reason uses significantly fewer flops
         # compared to equivalent alternatives (e.g. einsum) for some reason.
         weight = (coef @ self.weight.transpose(1, 2)).transpose(0, 1)
@@ -94,8 +95,52 @@ class MixtureLinear(nn.Module):
 
     def extra_repr(self) -> str:
         return (
-            f"{self.in_features}, {self.out_features}, rank={self.rank}, "
+            f"{self.in_features}, {self.out_features}, {self.rank}, "
             f"bias={self.bias is not None}"
+        )
+
+
+class MixtureCoefficients(nn.Module):
+    def __init__(
+        self,
+        seq_len: int,
+        rank: int = 16,
+        softmax: bool = True,
+        temp_scale: bool = True,
+    ):
+        super().__init__()
+        assert not temp_scale or softmax, "temp_scale requires softmax"
+
+        self.seq_len = seq_len
+        self.rank = rank
+        self.softmax = softmax
+        self.temp_scale = temp_scale
+
+        self.weight = nn.Parameter(torch.empty((seq_len, rank)))
+        # scale is a per-token scaling in log-space following CLIP
+        if self.temp_scale:
+            self.scale = nn.Parameter(torch.empty((seq_len)))
+        else:
+            self.register_parameter("scale", None)
+
+    def reset_parameters(self):
+        trunc_normal_(self.weight, std=self.rank**-0.5)
+        if self.temp_scale:
+            nn.init.zeros_(self.scale)
+
+    def forward(self) -> torch.Tensor:
+        coef = self.weight.clone()
+        if self.temp_scale:
+            scale = torch.clamp(torch.exp(self.scale), max=100)
+            coef = scale[:, None] * F.normalize(coef, dim=1)
+        if self.softmax:
+            coef = coef.softmax(dim=1)
+        return coef
+
+    def extra_repr(self) -> str:
+        return (
+            f"{self.seq_len}, {self.rank}, softmax={self.softmax}, "
+            f"temp_scale={self.temp_scale}"
         )
 
 
@@ -135,6 +180,10 @@ class UntiedLayerNorm(nn.Module):
         if self.elementwise_affine:
             input = input * self.weight + self.bias
         return input
+
+    def no_weight_decay(self) -> List[str]:
+        # Nb, not excluded by default since 2d
+        return ["weight", "bias"]
 
     def extra_repr(self) -> str:
         return (
