@@ -16,7 +16,7 @@ plt.style.use("ggplot")
 @register_figure("attn_grid")
 class AttentionGrid(nn.Module):
     def forward(self, state: Dict[str, torch.Tensor]):
-        attns = state.get("attns")
+        attns = state.get("attn")
         if attns is None:
             return None
         return attn_grid(attns)
@@ -101,7 +101,7 @@ class ImageAttentionMaps(nn.Module):
         # B, C, H, W
         images = state.get("image")
         # depth, B, nh, N, N
-        attns = state.get("attns")
+        attns = state.get("attn")
         if images is None or attns is None:
             return None
         # detect recurrent columnformer attention maps that don't match image
