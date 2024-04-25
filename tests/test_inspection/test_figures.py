@@ -15,7 +15,7 @@ def train_state() -> Dict[str, torch.Tensor]:
     state = {
         "image": torch.randn(32, 3, 128, 128),
         "features": torch.randn(32, 6, 64, 384),
-        "attns": torch.softmax(torch.randn(32, 6, 6, 64, 64), dim=-1),
+        "attn": torch.softmax(torch.randn(32, 6, 6, 64, 64), dim=-1),
     }
     return state
 

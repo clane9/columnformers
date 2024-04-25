@@ -122,6 +122,7 @@ class MixtureCoefficients(nn.Module):
             self.scale = nn.Parameter(torch.empty((seq_len)))
         else:
             self.register_parameter("scale", None)
+        self.reset_parameters()
 
     def reset_parameters(self):
         trunc_normal_(self.weight, std=self.rank**-0.5)

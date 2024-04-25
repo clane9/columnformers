@@ -393,8 +393,6 @@ class Block(nn.Module):
         proj_drop: float = 0.0,
         moe_experts: int = 16,
         moe_conserve: bool = True,
-        moe_softmax: bool = True,
-        moe_temp_scale: bool = True,
         act_layer: Layer = nn.GELU,
     ):
         super().__init__()
@@ -478,8 +476,6 @@ class Block(nn.Module):
                 hidden_features=int(dim * mlp_ratio),
                 seq_len=seq_len,
                 num_experts=moe_experts,
-                softmax=moe_softmax,
-                temp_scale=moe_temp_scale,
                 act_layer=act_layer,
                 drop=proj_drop,
             )
@@ -528,8 +524,6 @@ class Columnformer(nn.Module):
         proj_drop_rate: float = 0.0,
         moe_experts: Union[int, List[int]] = 16,
         moe_conserve: bool = True,
-        moe_softmax: bool = True,
-        moe_temp_scale: bool = True,
         act_layer: Layer = nn.GELU,
         geometry: Optional[torch.Tensor] = None,
         init_local_attn: bool = False,
@@ -577,8 +571,6 @@ class Columnformer(nn.Module):
                 proj_drop=proj_drop_rate,
                 moe_experts=moe_experts[ii],
                 moe_conserve=moe_conserve,
-                moe_softmax=moe_softmax,
-                moe_temp_scale=moe_temp_scale,
                 act_layer=act_layer,
             )
             for ii in range(num_blocks)
@@ -600,11 +592,13 @@ class Columnformer(nn.Module):
             x = F.pad(x, (0, 0, 0, self.seq_len - x.shape[1]))
 
         states = []
-        keys = ["attn", "coef", "features"]
+        keys = set()
         for step in range(self.depth):
             block = self.blocks[0 if self.recurrent else step]
             x, state = block(x)
+
             states.append(state)
+            keys.update(state.keys())
 
         # Nb, not all states necessarily have the same keys
         # Eg coef may be absent in case num experts is 1

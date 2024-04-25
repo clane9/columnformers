@@ -10,23 +10,17 @@ CONFIGS = {
     "transformer": {
         "embed_dim": 384,
         "depth": 6,
-        "recurrent": False,
         "num_heads": 6,
         "mlp_ratio": 4.0,
-        "untied": False,
-        "seq_len": None,
-        "skip_attn": True,
-        "attn_bias": False,
-        "qk_head_dim": None,
-        "no_vp": False,
     },
     "columnformer_ff": {
+        "attn_mode": "untied",
+        "mlp_mode": "untied",
+        "norm_mode": "untied",
         "embed_dim": 384,
         "depth": 6,
-        "recurrent": False,
         "num_heads": 1,
         "mlp_ratio": 1 / 6.0,
-        "untied": True,
         "seq_len": 64,
         "skip_attn": False,
         "attn_bias": True,
@@ -34,12 +28,14 @@ CONFIGS = {
         "no_vp": True,
     },
     "columnformer_r": {
+        "attn_mode": "untied",
+        "mlp_mode": "untied",
+        "norm_mode": "untied",
         "embed_dim": 384,
         "depth": 6,
         "recurrent": True,
         "num_heads": 1,
         "mlp_ratio": 1 / 6.0,
-        "untied": True,
         "seq_len": 384,
         "skip_attn": False,
         "attn_bias": True,
@@ -47,42 +43,40 @@ CONFIGS = {
         "no_vp": True,
     },
     "columnformer_ff_sel": {
+        "attn_mode": "selection",
+        "mlp_mode": "untied",
+        "norm_mode": "untied",
         "embed_dim": 384,
         "depth": 6,
-        "recurrent": False,
         "num_heads": 6,
         "mlp_ratio": 1 / 6.0,
-        "untied": True,
         "seq_len": 64,
-        "attn_mode": "selection",
         "skip_attn": True,
         "attn_bias": True,
         "attn_head_bias": True,
     },
     "columnformer_ff_mix": {
+        "attn_mode": "mixing",
+        "mlp_mode": "untied",
+        "norm_mode": "untied",
         "embed_dim": 384,
         "depth": 6,
-        "recurrent": False,
         "num_heads": 6,
         "mlp_ratio": 1 / 6.0,
-        "untied": True,
         "seq_len": 64,
-        "attn_mode": "mixing",
         "skip_attn": True,
         "attn_bias": True,
         "attn_head_bias": True,
     },
-    "columnformer_ff_sumoe": {
+    "transformer_moe": {
+        "mlp_mode": "moe",
         "embed_dim": 384,
         "depth": 6,
-        "recurrent": False,
         "num_heads": 6,
-        "mlp_ratio": 0.5,
+        "mlp_ratio": 4.0,
         "seq_len": 64,
-        "mlp_rank": 2,
-        "attn_mode": "classic",
-        "skip_attn": True,
-        "attn_bias": True,
+        "moe_experts": [1, 1, 2, 2, 4, 4],
+        "moe_conserve": True,
     },
 }
 
@@ -95,7 +89,7 @@ CONFIGS = {
         "columnformer_r",
         "columnformer_ff_sel",
         "columnformer_ff_mix",
-        "columnformer_ff_sumoe",
+        "transformer_moe",
     ],
 )
 def test_model(config: str):
@@ -105,7 +99,7 @@ def test_model(config: str):
 
     x = torch.randn(1, 64, model.embed_dim)
     output, state = model.forward(x)
-    attn = state["attns"]
+    attn = state["attn"]
     logging.info("Output: %s, Attention: %s", output.shape, attn.shape)
 
     flops = FlopCountAnalysis(model, x)
