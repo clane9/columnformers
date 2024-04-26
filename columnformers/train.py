@@ -36,10 +36,20 @@ from columnformers.inspection import (
     list_metrics,
 )
 from columnformers.models import create_model, list_models
-from columnformers.tasks import ImageClassification, Task, WiringCost
+from columnformers.models.columnformer import AttnMode, MlpMode, NormMode
+from columnformers.losses import (
+    CrossEntropyLoss,
+    L1WiringCost,
+    TVMixtureLoss,
+    VisionTask,
+)
 
 np.set_printoptions(precision=3)
 plt.switch_backend("Agg")
+
+
+def _get_enum_values(cls: type):
+    return [v.value for v in cls]
 
 
 @dataclass
@@ -47,29 +57,26 @@ class Args:
     project: str = HfArg(default="columnformers", help="project name")
     # Model
     model: str = HfArg(
-        default="vision_columnformer_r_tiny_patch16_128",
+        default="vision_transformer_tiny_patch16_128",
         help=f"model ({', '.join(list_models())})",
+    )
+    attn_mode: Optional[str] = HfArg(
+        default=None,
+        help=f"attention mode ({', '.join(_get_enum_values(AttnMode))})",
+    )
+    mlp_mode: Optional[str] = HfArg(
+        default=None,
+        help=f"mlp mode ({', '.join(_get_enum_values(MlpMode))})",
+    )
+    norm_mode: Optional[str] = HfArg(
+        default=None,
+        help=f"norm mode ({', '.join(_get_enum_values(NormMode))})",
     )
     num_heads: Optional[int] = HfArg(
         aliases=["--nh"], default=None, help="number of attention heads"
     )
     mlp_ratio: Optional[float] = HfArg(
         aliases=["--mlpr"], default=None, help="mlp ratio"
-    )
-    untied: Optional[str] = HfArg(
-        default=None,
-        help="untied mode coded as str of 1 or 3 comma separated values for norm, attn, "
-        "mlp. e.g. '1' or '1,0,0'",
-    )
-    mlp_rank: Optional[str] = HfArg(
-        default=None,
-        help="rank(s) of SuMoE MLPs as 1 or `depth` comma separated values. "
-        "e.g. '2', '1,1,2,2,4,4'",
-    )
-    attn_mode: Optional[str] = HfArg(
-        aliases=["--attnm"],
-        default=None,
-        help="attention mode ('classic', 'selection', 'mixing', 'linmixing')",
     )
     skip_attn: Optional[bool] = HfArg(
         aliases=["--skip"], default=None, help="include attention skip connection"
@@ -86,8 +93,21 @@ class Args:
     no_vp: Optional[bool] = HfArg(
         aliases=["--novp"], default=None, help="don't use value and projection"
     )
+    moe_experts: Optional[str] = HfArg(
+        default=None,
+        help="number of experts for MoE MLP. can be a single value or a list of values, "
+        "e.g. '2', '1,1,2,2,4,4'",
+    )
+    moe_conserve: bool = HfArg(
+        default=True,
+        help="Divide params by num experts "
+        "`expert_params = dim * mlp_ratio / num_experts`",
+    )
     init_local_attn: Optional[bool] = HfArg(
         aliases=["--initloc"], default=None, help="initialize with local attention bias"
+    )
+    depth_offset: int = HfArg(
+        aliases=["--offset"], default=2.0, help="distance offset between layers"
     )
     global_pool: str = HfArg(
         aliases=["--pool"], default="avg", help="global pooling mode (avg, spatial)"
@@ -102,13 +122,15 @@ class Args:
     attn_drop_rate: float = HfArg(
         aliases=["--adr"], default=0.0, help="attention dropout rate"
     )
-    depth_offset: int = HfArg(
-        aliases=["--offset"], default=2.0, help="distance offset between layers"
-    )
     wiring_lambd: float = HfArg(
         aliases=["--wlambd"], default=0.0, help="wiring length penalty"
     )
     wiring_p: float = HfArg(aliases=["--wp"], default=1.0, help="wiring length power")
+    tv_lambd: float = HfArg(
+        aliases=["--tvlambd"],
+        default=0.0,
+        help="total variation moe coefficient penalty",
+    )
     # Dataset
     dataset: str = HfArg(
         aliases=["--ds"],
@@ -303,18 +325,20 @@ def main(args: Args):
     logging.info("Creating model: %s", args.model)
     model = create_model(
         args.model,
-        depth_offset=args.depth_offset,
+        attn_mode=args.attn_mode,
+        mlp_mode=args.mlp_mode,
+        norm_mode=args.norm_mode,
         num_heads=args.num_heads,
         mlp_ratio=args.mlp_ratio,
-        untied=parse_csv(args.untied, typ=lambda v: bool(int(v))),
-        mlp_rank=parse_csv(args.mlp_rank, typ=int),
-        attn_mode=args.attn_mode,
         skip_attn=args.skip_attn,
         attn_bias=args.attn_bias,
         attn_head_bias=args.attn_head_bias,
         qk_head_dim=args.qk_head_dim,
         no_vp=args.no_vp,
+        moe_experts=parse_csv(args.moe_experts),
+        moe_conserve=args.moe_conserve,
         init_local_attn=args.init_local_attn,
+        depth_offset=args.depth_offset,
         num_classes=num_classes,
         global_pool=args.global_pool,
         pos_embed=args.pos_embed,
@@ -325,15 +349,15 @@ def main(args: Args):
     model: torch.nn.Module = model.to(clust.device)
     logging.info("%s", model)
 
+    losses = {}
+    losses["class_loss"] = CrossEntropyLoss()
     if args.wiring_lambd > 0:
-        wiring_cost = WiringCost(
-            geometry=model.geometry,
-            lambd=args.wiring_lambd,
-            p=args.wiring_p,
+        losses["wiring_cost"] = L1WiringCost(
+            geometry=model.geometry, lambd=args.wiring_lambd, p=args.wiring_p
         )
-    else:
-        wiring_cost = None
-    task = ImageClassification(wiring_cost)
+    if args.tv_lambd > 0:
+        losses["tv_loss"] = TVMixtureLoss(lambd=args.tv_lambd)
+    task = VisionTask(losses)
     task = task.to(clust.device)
     logging.info("Task: %s", task)
 
@@ -474,7 +498,7 @@ def train_one_epoch(
     args: Args,
     epoch: int,
     model: torch.nn.Module,
-    task: Task,
+    task: VisionTask,
     train_loader: DataLoader,
     optimizer: torch.optim.Optimizer,
     lr_schedule: ut.LRSchedule,
@@ -627,7 +651,7 @@ def validate(
     epoch: int,
     step: int,
     model: torch.nn.Module,
-    task: Task,
+    task: VisionTask,
     val_loader: DataLoader,
     clust: ut.ClusterEnv,
     figure_builders: Dict[str, Figure],
@@ -777,7 +801,7 @@ def update_metrics(metrics: Dict[str, Any], state: Dict[str, torch.Tensor]):
 
 
 def is_scalar(value: torch.Tensor):
-    return len(value.shape) == 0
+    return torch.is_tensor(value) and len(value.shape) == 0
 
 
 if __name__ == "__main__":

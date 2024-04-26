@@ -449,6 +449,7 @@ class Block(nn.Module):
             self.attn = Attention(
                 dim=dim,
                 num_heads=num_heads,
+                seq_len=seq_len,
                 bias=attn_bias,
                 head_bias=attn_head_bias,
                 qkv_bias=qkv_bias,
