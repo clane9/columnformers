@@ -16,6 +16,7 @@ def train_state() -> Dict[str, torch.Tensor]:
         "image": torch.randn(32, 3, 128, 128),
         "features": torch.randn(32, 6, 64, 384),
         "attn": torch.softmax(torch.randn(32, 6, 6, 64, 64), dim=-1),
+        "coef": 3 * [None] + [torch.randn(64, 2).softmax(dim=-1) for _ in range(3)],
     }
     return state
 
@@ -27,6 +28,7 @@ def train_state() -> Dict[str, torch.Tensor]:
         "attn_grid",
         "feat_corr_grid",
         "image_attn_maps",
+        "coefficient_maps",
     ],
 )
 def test_figures(name: str, train_state: Dict[str, torch.Tensor]):

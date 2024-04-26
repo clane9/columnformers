@@ -1,5 +1,5 @@
 import math
-from typing import Dict, Literal, Optional
+from typing import Dict, List, Literal, Optional
 
 import numpy as np
 import torch
@@ -230,3 +230,46 @@ def imshow(img: torch.Tensor, cmap: str = "turbo", colorbar: bool = False, **kwa
     if colorbar:
         cb = plt.colorbar(fraction=0.046, pad=0.04)
         cb.ax.tick_params(labelsize=8)
+
+
+@register_figure("coefficient_maps")
+class CoefficientMaps(nn.Module):
+    def forward(self, state: Dict[str, torch.Tensor]):
+        coefs = state.get("coef")
+        if coefs is None:
+            return None
+        return coefficient_maps(coefs)
+
+
+def coefficient_maps(
+    coefs: List[Optional[torch.Tensor]],
+    ncol: int = 8,
+    plotw: float = 3.4,
+    ploth: float = 3.0,
+):
+    coef = torch.cat([c.detach() for c in coefs if c is not None], dim=1)
+    N, E = coef.shape
+    H = math.isqrt(N)
+    coef = coef.reshape(H, H, E)
+    vmin, vmax = coef.min(), coef.max()
+
+    labels = []
+    for ii, c in enumerate(coefs):
+        if c is not None:
+            labels.extend(f"lyr/e={ii}/{jj}" for jj in range(c.shape[1]))
+
+    nc = min(ncol, E)
+    nr = math.ceil(E / nc)
+    f, axs = plt.subplots(nr, nc, figsize=(nc * plotw, nr * ploth))
+    axs = axs.flatten()
+
+    for ii, ax in enumerate(axs):
+        plt.sca(ax)
+        if ii >= E:
+            plt.axis("off")
+            continue
+        imshow(coef[..., ii], vmin=vmin, vmax=vmax, colorbar=ii == E - 1)
+        plt.title(labels[ii], fontsize=10)
+
+    plt.tight_layout(pad=0.25)
+    return f
