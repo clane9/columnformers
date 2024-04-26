@@ -40,7 +40,7 @@ def attn_grid(
 
     nr = num_examples
     nc = depth // stride
-    f, axs = plt.subplots(nr, nc, figsize=(nc * plotw, nr * ploth))
+    f, axs = plt.subplots(nr, nc, figsize=(nc * plotw, nr * ploth), squeeze=False)
 
     for ii in range(nr):
         for jj in range(nc):
@@ -82,7 +82,7 @@ def feat_corr_grid(
 
     nr = num_examples
     nc = depth // stride
-    f, axs = plt.subplots(nr, nc, figsize=(nc * plotw, nr * ploth))
+    f, axs = plt.subplots(nr, nc, figsize=(nc * plotw, nr * ploth), squeeze=False)
 
     for ii in range(nr):
         for jj in range(nc):
@@ -150,7 +150,7 @@ def image_attn_maps(
 
     nr = num_examples
     nc = 1 + depth // stride
-    f, axs = plt.subplots(nr, nc, figsize=(nc * plotw, nr * ploth))
+    f, axs = plt.subplots(nr, nc, figsize=(nc * plotw, nr * ploth), squeeze=False)
 
     for ii in range(nr):
         plt.sca(axs[ii, 0])
@@ -196,7 +196,7 @@ def image_grid(
 
     nr = num_examples // num_col
     nc = num_col
-    f, axs = plt.subplots(nr, nc, figsize=(nc * plotw, nr * ploth))
+    f, axs = plt.subplots(nr, nc, figsize=(nc * plotw, nr * ploth), squeeze=False)
     axs = axs.flatten()
 
     idx = 0

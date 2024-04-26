@@ -3,15 +3,6 @@ import pytest
 from columnformers import train
 
 configs = {
-    "default": train.Args(
-        dataset="debug-100",
-        workers=0,
-        batch_size=32,
-        out_dir="test_results",
-        name="debug_train_default",
-        overwrite=True,
-        debug=True,
-    ),
     "transformer": train.Args(
         model="vision_transformer_tiny_patch16_128",
         dataset="debug-100",
@@ -32,6 +23,16 @@ configs = {
         overwrite=True,
         debug=True,
     ),
+    "recurrent": train.Args(
+        model="vision_columnformer_r_tiny_patch16_128",
+        dataset="debug-100",
+        workers=0,
+        batch_size=32,
+        out_dir="test_results",
+        name="debug_train_recurrent",
+        overwrite=True,
+        debug=True,
+    ),
     "wiring": train.Args(
         model="vision_transformer_tiny_patch16_128",
         dataset="debug-100",
@@ -43,16 +44,16 @@ configs = {
         overwrite=True,
         debug=True,
     ),
-    "sumoe": train.Args(
-        model="vision_transformer_tiny_patch16_128",
-        mlp_ratio=0.5,
-        mlp_rank="1,1,2,2,4,4",
-        attn_bias=True,
+    "moe": train.Args(
+        model="vision_moemixer_tiny_patch16_128",
         dataset="debug-100",
+        moe_experts="1,1,2,2,4,4",
+        wiring_lambd=0.1,
+        tv_lambd=0.001,
         workers=0,
         batch_size=32,
         out_dir="test_results",
-        name="debug_train_sumoe",
+        name="debug_train_moe",
         overwrite=True,
         debug=True,
     ),
@@ -62,11 +63,11 @@ configs = {
 @pytest.mark.parametrize(
     "config",
     [
-        "default",
         "transformer",
         "feedforward",
+        "recurrent",
         "wiring",
-        "sumoe",
+        "moe",
     ],
 )
 def test_train(config: str):
