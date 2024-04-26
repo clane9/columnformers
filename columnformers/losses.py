@@ -35,7 +35,7 @@ class VisionTask(nn.Module):
 class L1WiringCost(nn.Module):
     weight: torch.Tensor
 
-    def __init__(self, geometry: torch.Tensor, lambd: float = 0.01, p: float = 1.0):
+    def __init__(self, geometry: torch.Tensor, lambd: float = 0.1, p: float = 1.0):
         super().__init__()
         self.lambd = lambd
         self.p = p
@@ -48,7 +48,7 @@ class L1WiringCost(nn.Module):
         attn = state.get("attn")
         if attn is None:
             return torch.zeros((), device=output.device, dtype=output.dtype)
-        loss = self.lambd * (self.weight * attn).abs().mean()
+        loss = self.lambd * (self.weight * attn).abs().sum(dim=-1).mean()
         return loss
 
     def extra_repr(self) -> str:
@@ -56,7 +56,10 @@ class L1WiringCost(nn.Module):
 
 
 class TVMixtureLoss(nn.Module):
-    def __init__(self, lambd: float = 0.01):
+    # todo: not sure if this idea is the best. tv loss on coefficients, which are
+    # softmaxed within each layer. maybe local cross entropy could be better?
+
+    def __init__(self, lambd: float = 0.001):
         super().__init__()
         self.lambd = lambd
 
@@ -66,12 +69,12 @@ class TVMixtureLoss(nn.Module):
             return torch.zeros((), device=output.device, dtype=output.dtype)
 
         coef = torch.cat([c for c in coef if c is not None], dim=1)
-        N, E = coef.shape[0]
+        N, E = coef.shape
         H = math.isqrt(N)
         coef = coef.reshape(H, H, E)
-        loss = self.lambd * (
-            (coef[1:] - coef[:-1]).abs().mean()
-            + (coef[:, 1:] - coef[:, :-1]).abs().mean()
+        loss = (self.lambd / E) * (
+            (coef[1:] - coef[:-1]).abs().sum()
+            + (coef[:, 1:] - coef[:, :-1]).abs().sum()
         )
         return loss
 
