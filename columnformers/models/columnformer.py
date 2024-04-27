@@ -513,7 +513,7 @@ class Columnformer(nn.Module):
         depth: int = 12,
         recurrent: bool = False,
         num_heads: int = 8,
-        mlp_ratio: float = 4.0,
+        mlp_ratio: Union[float, List[float]] = 4.0,
         seq_len: Optional[int] = None,
         skip_attn: bool = True,
         attn_bias: bool = False,
@@ -549,9 +549,10 @@ class Columnformer(nn.Module):
         self.local_attn_sigma = local_attn_sigma
 
         num_blocks = 1 if recurrent else depth
-        moe_experts = moe_experts if isinstance(moe_experts, list) else [moe_experts]
-        if len(moe_experts) == 1:
-            moe_experts = num_blocks * moe_experts
+        mlp_ratio = _to_list(mlp_ratio, num_blocks)
+        assert len(mlp_ratio) == num_blocks, "mlp_ratio length doesn't match depth"
+        moe_experts = _to_list(moe_experts, num_blocks)
+        assert len(moe_experts) == num_blocks, "moe_experts length doesn't match depth"
 
         self.blocks = nn.ModuleList(
             Block(
@@ -560,7 +561,7 @@ class Columnformer(nn.Module):
                 norm_mode=norm_mode,
                 dim=embed_dim,
                 num_heads=num_heads,
-                mlp_ratio=mlp_ratio,
+                mlp_ratio=mlp_ratio[ii],
                 seq_len=seq_len,
                 skip_attn=skip_attn,
                 attn_bias=attn_bias,
@@ -627,3 +628,11 @@ def gaussian_local_attn_bias(
     if min is not None:
         attn_bias = torch.clamp(attn_bias, min=min)
     return attn_bias
+
+
+def _to_list(x, length):
+    if not isinstance(x, (list, tuple)):
+        x = [x] * length
+    elif len(x) == 1:
+        x = x * length
+    return x

@@ -75,8 +75,11 @@ class Args:
     num_heads: Optional[int] = HfArg(
         aliases=["--nh"], default=None, help="number of attention heads"
     )
-    mlp_ratio: Optional[float] = HfArg(
-        aliases=["--mlpr"], default=None, help="mlp ratio"
+    mlp_ratio: Optional[str] = HfArg(
+        aliases=["--mlpr"],
+        default=None,
+        help="mlp ratio. can be a single value or a list of values, "
+        "e.g. '4', '4,4,4,2,2,2'",
     )
     skip_attn: Optional[bool] = HfArg(
         aliases=["--skip"], default=None, help="include attention skip connection"
@@ -324,7 +327,7 @@ def main(args: Args):
         mlp_mode=args.mlp_mode,
         norm_mode=args.norm_mode,
         num_heads=args.num_heads,
-        mlp_ratio=args.mlp_ratio,
+        mlp_ratio=parse_csv(args.mlp_ratio, float),
         skip_attn=args.skip_attn,
         attn_bias=args.attn_bias,
         attn_head_bias=args.attn_head_bias,
