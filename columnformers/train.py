@@ -764,7 +764,7 @@ def validate(
 
 def parse_csv(text: Optional[str], typ: type = int):
     if text is not None:
-        text = [typ(val) for val in text.strip().split(",")]
+        text = [typ(val) for val in str(text).strip().split(",")]
         if len(text) == 1:
             text = text[0]
     return text
