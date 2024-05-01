@@ -249,3 +249,34 @@ def vision_columnformer_r_tiny_patch16_128(**kwargs):
         **kwargs,
     )
     return model
+
+
+@register_model
+def vision_tut_tiny_patch16_128(**kwargs):
+    encoder_params = {
+        "embed_dim": 384,
+        "depth": 6,
+        "recurrent": True,
+        "seq_len": 384,
+    }
+    encoder_defaults = {
+        "attn_mode": "classic",
+        "mlp_mode": "moe",
+        "norm_mode": "classic",
+        "num_heads": 6,
+        "mlp_ratio": 1.0,
+        "moe_experts": 24,
+        "moe_conserve": False,
+        "attn_bias": True,
+    }
+    params = {"img_size": 128, "patch_size": 16}
+    defaults = {}
+    model = _create_vision_columnformer(
+        widths=6 * (8,),
+        encoder_params=encoder_params,
+        encoder_defaults=encoder_defaults,
+        params=params,
+        defaults=defaults,
+        **kwargs,
+    )
+    return model

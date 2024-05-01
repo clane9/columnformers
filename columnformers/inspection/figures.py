@@ -100,7 +100,7 @@ class ImageAttentionMaps(nn.Module):
     def forward(self, state: Dict[str, torch.Tensor]):
         # B, C, H, W
         images = state.get("image")
-        # depth, B, nh, N, N
+        # B, depth, nh, N, N
         attns = state.get("attn")
         if images is None or attns is None:
             return None
@@ -235,41 +235,72 @@ def imshow(img: torch.Tensor, cmap: str = "turbo", colorbar: bool = False, **kwa
 @register_figure("coefficient_maps")
 class CoefficientMaps(nn.Module):
     def forward(self, state: Dict[str, torch.Tensor]):
+        # B, C, H, W
+        images = state["image"]
+        # B, depth, nh, N, N
+        attns = state["attn"]
+        # list of (N, E)
         coefs = state.get("coef")
         if coefs is None:
+            return None
+
+        coef = next(c for c in coefs if c is not None)
+        N = coef.shape[0]
+        # special case of recurrence with stack of layers geometry
+        # TODO: hack
+        if len(coefs) == 1:
+            depth = attns.shape[1]
+            if N % depth == 0:
+                coefs = torch.chunk(coefs[0], depth)
+                N = coefs[0].shape[0]
+
+        # detect non-square coefficient maps used in recurrent case
+        if N != math.isqrt(N) ** 2:
+            return None
+
+        # detect coefficient maps that don't match image
+        # TODO: hack
+        patch_size = images.shape[2] / math.isqrt(N)
+        if patch_size not in {8.0, 14.0, 16.0}:
             return None
         return coefficient_maps(coefs)
 
 
 def coefficient_maps(
     coefs: List[Optional[torch.Tensor]],
-    ncol: int = 8,
     plotw: float = 3.4,
     ploth: float = 3.0,
 ):
-    coef = torch.cat([c.detach() for c in coefs if c is not None], dim=1)
-    N, E = coef.shape
+    layer_ids = [ii for ii, c in enumerate(coefs) if c is not None]
+    coefs = [c.detach() for c in coefs if c is not None]
+    N = coefs[0].shape[0]
     H = math.isqrt(N)
-    coef = coef.reshape(H, H, E)
-    vmin, vmax = coef.min(), coef.max()
+    max_experts = max(c.shape[1] for c in coefs)
+    vmin = min(c.min().item() for c in coefs)
+    vmax = min(c.max().item() for c in coefs)
 
-    labels = []
-    for ii, c in enumerate(coefs):
-        if c is not None:
-            labels.extend(f"lyr/e={ii}/{jj}" for jj in range(c.shape[1]))
+    nc = max_experts
+    nr = len(coefs)
+    f, axs = plt.subplots(nr, nc, figsize=(nc * plotw, nr * ploth), squeeze=False)
 
-    nc = min(ncol, E)
-    nr = math.ceil(E / nc)
-    f, axs = plt.subplots(nr, nc, figsize=(nc * plotw, nr * ploth))
-    axs = axs.flatten()
+    for ii, coef in enumerate(coefs):
+        for jj in range(nc):
+            ax = axs[ii, jj]
+            plt.sca(ax)
+            if jj >= coef.shape[1]:
+                plt.axis("off")
+                continue
 
-    for ii, ax in enumerate(axs):
-        plt.sca(ax)
-        if ii >= E:
-            plt.axis("off")
-            continue
-        imshow(coef[..., ii], vmin=vmin, vmax=vmax, colorbar=ii == E - 1)
-        plt.title(labels[ii], fontsize=10)
+            imshow(
+                coef[:, jj].reshape(H, H),
+                vmin=vmin,
+                vmax=vmax,
+                colorbar=(jj == coef.shape[1] - 1),
+            )
+            if jj == 0:
+                plt.ylabel(f"Layer {layer_ids[ii]}", fontsize=10)
+            if ii == len(coefs) - 1:
+                plt.xlabel(f"Expert {jj}", fontsize=10)
 
-    plt.tight_layout(pad=0.25)
+    plt.tight_layout(pad=0.75)
     return f

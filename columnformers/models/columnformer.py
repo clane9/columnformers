@@ -610,6 +610,9 @@ class Columnformer(nn.Module):
         # can't stack coefficients because they may have different shapes
         for key in ["attn", "features"]:
             state[key] = torch.stack(state[key], dim=1)
+
+        if self.recurrent and "coef" in state:
+            state["coef"] = state["coef"][:1]
         return x, state
 
     def extra_repr(self) -> str:
