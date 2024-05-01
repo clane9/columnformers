@@ -4,9 +4,10 @@ matplotlib==3.8.2
 numpy==1.26.2
 Pillow==10.1.0
 timm==0.9.12
-torch==2.1.1
-torchvision==0.16.1
+torch==2.3.0
+torchvision==0.18.0
 transformers==4.36.2
+triton==2.3.0
 wandb==0.16.2
 
 ipython==8.18.0
