@@ -57,6 +57,18 @@ configs = {
         overwrite=True,
         debug=True,
     ),
+    "tut": train.Args(
+        model="vision_tut_tiny_patch16_128",
+        dataset="debug-100",
+        moe_experts="24",
+        wiring_lambd=0.1,
+        workers=0,
+        batch_size=32,
+        out_dir="test_results",
+        name="debug_train_tut",
+        overwrite=True,
+        debug=True,
+    ),
 }
 
 
@@ -68,6 +80,7 @@ configs = {
         "recurrent",
         "wiring",
         "moe",
+        "tut",
     ],
 )
 def test_train(config: str):

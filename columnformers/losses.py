@@ -64,6 +64,7 @@ class TVMixtureLoss(nn.Module):
         self.lambd = lambd
 
     def forward(self, batch: State, output: torch.Tensor, state: State) -> torch.Tensor:
+        # TODO: extend to handle the recurrent case
         coef = state.get("coef")
         if coef is None:
             return torch.zeros((), device=output.device, dtype=output.dtype)
