@@ -5,6 +5,13 @@ import torch.nn.functional as F
 from timm.layers import trunc_normal_
 from torch import nn
 
+try:
+    from triton.ops.blocksparse import matmul as blocksparse_matmul  # noqa
+
+    triton_available = True
+except ImportError:
+    triton_available = False
+
 Layer = Callable[..., nn.Module]
 
 
@@ -280,3 +287,77 @@ def init_weights(module: nn.Module):
             nn.init.zeros_(module.bias)
     elif hasattr(module, "init_weights"):
         module.init_weights()
+
+
+class BlockSparseLinear(nn.Module):
+    """
+    A linear layer with block sparse connectivity.
+
+    Args:
+        connectivity: a binary tensor of shape (out_features, in_features) representing
+            the connectivity between input and output units.
+        bias: use bias
+        blocksize: sparse block size, e.g. 16, 32. Must divide each dimension of
+            connectivity
+
+    TODO:
+        [ ] initialize weight and bias. weight should be masked by connectivity at init.
+            think about what the appropriate init std should be.
+        [ ] create a dsd sparse matmul kernel following xformers.BlockSparseAttention:
+            https://github.com/facebookresearch/xformers/blob/fad50d49834ab18dd137acc727bd4d567ff17842/xformers/components/attention/blocksparse.py#L96
+        [ ] implement forward that should mask weight by connectivity and then call the
+            blocksparse matmul kernel
+    """
+
+    def __init__(
+        self, connectivity: torch.Tensor, bias: bool = True, blocksize: int = 16
+    ):
+        assert triton_available, "blocksparse linear requires triton"
+        super().__init__()
+        self.in_features = connectivity.shape[1]
+        self.out_features = connectivity.shape[0]
+        self.blocksize = blocksize
+
+        # convert to torch blocksparse representation if not already
+        connectivity = connectivity.to_sparse_bsr(blocksize)
+
+        # block sparse layout as expected by triton
+        # shape (1, out_features // block, in_features // block)
+        # must be dtype int64
+        layout = torch.sparse_csr_tensor(
+            connectivity.crow_indices(),
+            connectivity.col_indices(),
+            torch.ones_like(connectivity.col_indices()),
+        )
+        layout = layout.to_dense().unsqueeze(0)
+
+        # only keep raw values, don't need indices since we have layout
+        # shape (nnz_blocks, block, block)
+        connectivity = (connectivity.values() > 0).float()
+
+        self.register_buffer("connectivity", connectivity)
+        self.register_buffer("layout", layout)
+
+        # TODO: initialize weight and bias
+
+    def reset_parameters(self):
+        raise NotImplementedError
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        raise NotImplementedError
+
+    def extra_repr(self) -> str:
+        return (
+            f"{self.in_features}, {self.out_features}, "
+            f"bias={self.bias is not None}, blocksize={self.blocksize}"
+        )
+
+
+class BlockSparseLocallyConnected(nn.Module):
+    """
+    A locally connected layer implemented using block sparse linear.
+
+    TODO: main step is just computing the connectivity based on conv params. shape
+    should be something like: (out_height * out_width * out_channels, in_height *
+    in_width * in_channels). Then we just use BlockSparseLinear.
+    """
