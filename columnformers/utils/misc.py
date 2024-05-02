@@ -148,7 +148,8 @@ def filter_kwargs(func: Callable, kwargs: Dict[str, Any]):
     """
     Filter unused extra kwargs. Returns filtered kwargs and a list of extra args.
     """
-    allowed_args = set(inspect.getfullargspec(func).args)
+    spec = inspect.getfullargspec(func)
+    allowed_args = set(spec.args + spec.kwonlyargs)
     extra_args = []
     kwargs = kwargs.copy()
     for k in list(kwargs):
