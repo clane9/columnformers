@@ -1,21 +1,25 @@
-from typing import Tuple
+from collections.abc import Sequence
+from typing import Union
 
 import torch
 
 
 def multilayer_geometry(
-    widths: Tuple[int, ...], depth_offset: float = 2.0
+    widths: Union[int, Sequence[int]], depth_offset: float = 2.0
 ) -> torch.Tensor:
     """
     Construct a 3D geometry for a stack of square layers.
 
     Args:
-        widths: tuple of layer widths
+        widths: sequence of layer widths or single layer width
         depth_offset: distance between layers
 
     Returns:
         dist, shape (N, N)
     """
+    if not isinstance(widths, Sequence):
+        widths = [widths]
+
     layers = []
     for ii, width in enumerate(widths):
         points = torch.linspace(-width / 2, width / 2, width)
