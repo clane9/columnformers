@@ -60,7 +60,8 @@ configs = {
     "tut": train.Args(
         model="vision_tut_tiny_patch16_128",
         dataset="debug-100",
-        moe_experts="24",
+        moe_experts="12",
+        mlp_ratio=2.0,
         wiring_lambd=0.1,
         workers=0,
         batch_size=32,
