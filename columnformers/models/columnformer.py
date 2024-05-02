@@ -488,9 +488,15 @@ class Block(nn.Module):
                 drop=proj_drop,
             )
 
-    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(
+        self, x: torch.Tensor, skip_x: Optional[torch.Tensor] = None
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        # x: input to self-attention
+        # skip_x: direct residual input to mlp
+        skip_x = x if skip_x is None else skip_x
+
         pooled, attn_state = self.attn(self.norm1(x))
-        x = x + pooled if self.skip_attn else pooled
+        x = skip_x + pooled if self.skip_attn else pooled
         embed, mlp_state = self.mlp(self.norm2(x))
         x = x + embed
 
@@ -503,9 +509,11 @@ class Block(nn.Module):
 
 class Columnformer(nn.Module):
     geometry: Optional[torch.Tensor]
+    direct_edges: Optional[torch.Tensor]
 
     def __init__(
         self,
+        *,
         attn_mode: AttnMode = "classic",
         mlp_mode: MlpMode = "classic",
         norm_mode: NormMode = "classic",
@@ -514,7 +522,7 @@ class Columnformer(nn.Module):
         recurrent: bool = False,
         num_heads: int = 8,
         mlp_ratio: Union[float, List[float]] = 4.0,
-        seq_len: Optional[int] = None,
+        seq_len: int = 64,
         skip_attn: bool = True,
         attn_bias: bool = False,
         attn_head_bias: bool = False,
@@ -526,7 +534,9 @@ class Columnformer(nn.Module):
         moe_experts: Union[int, List[int]] = 16,
         moe_conserve: bool = True,
         act_layer: Layer = nn.GELU,
+        pos_embed: bool = True,
         geometry: Optional[torch.Tensor] = None,
+        direct_edges: Optional[torch.Tensor] = None,
         init_local_attn: bool = False,
         local_attn_sigma: float = 2.0,
     ):
@@ -535,11 +545,15 @@ class Columnformer(nn.Module):
             not init_local_attn or geometry is not None
         ), "geometry required for local attention"
         assert (
+            direct_edges is None or recurrent
+        ), "direct edges only supported for recurrent models"
+        assert (
             not init_local_attn or attn_bias
         ), "attn_bias required for local attention"
         if geometry is not None:
-            assert seq_len, "seq_len required for geometry"
             assert geometry.shape == (seq_len, seq_len), "invalid geometry shape"
+        if direct_edges is not None:
+            assert direct_edges.shape == (seq_len,), "invalid direct_edges shape"
 
         self.embed_dim = embed_dim
         self.depth = depth
@@ -578,7 +592,13 @@ class Columnformer(nn.Module):
             for ii in range(num_blocks)
         )
 
+        if pos_embed:
+            self.pos_embed = nn.Parameter(torch.empty(1, seq_len, embed_dim))
+        else:
+            self.register_parameter("pos_embed", None)
+
         self.register_buffer("geometry", geometry)
+        self.register_buffer("direct_edges", direct_edges)
         self.init_weights()
 
     def init_weights(self):
@@ -589,18 +609,33 @@ class Columnformer(nn.Module):
             for block in self.blocks:
                 block.attn.init_bias(attn_bias)
 
-    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
-        if self.seq_len and x.shape[1] < self.seq_len:
-            x = F.pad(x, (0, 0, 0, self.seq_len - x.shape[1]))
+        if self.pos_embed is not None:
+            trunc_normal_(self.pos_embed, std=0.02)
 
+    def forward(
+        self, input: torch.Tensor
+    ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+        x = input
+        if self.recurrent and x.shape[1] < self.seq_len:
+            x = F.pad(x, (0, 0, 0, self.seq_len - input.shape[1]))
+
+        if self.pos_embed is not None:
+            x = x + self.pos_embed
+
+        skip_x = None
         states = []
         keys = set()
+
         for step in range(self.depth):
             block = self.blocks[0 if self.recurrent else step]
-            x, state = block(x)
+            x, state = block(x, skip_x=skip_x)
 
             states.append(state)
             keys.update(state.keys())
+
+            if self.recurrent and self.direct_edges is not None:
+                skip_x = torch.cat([input, x], dim=1)
+                skip_x = skip_x[:, self.direct_edges]
 
         # Nb, not all states necessarily have the same keys
         # Eg coef may be absent in case num experts is 1

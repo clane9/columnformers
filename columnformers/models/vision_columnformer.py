@@ -2,7 +2,7 @@ import logging
 from typing import Any, Dict, Literal, Optional, Tuple
 
 import torch
-from timm.layers import PatchEmbed, trunc_normal_
+from timm.layers import PatchEmbed
 from torch import nn
 
 from columnformers.utils import filter_kwargs
@@ -23,7 +23,6 @@ class VisionColumnformer(nn.Module):
         num_classes: int = 100,
         global_pool: Literal["", "avg", "spatial"] = "avg",
         output_len: Optional[int] = None,
-        pos_embed: bool = True,
         drop_rate: float = 0.0,
     ):
         super().__init__()
@@ -43,12 +42,6 @@ class VisionColumnformer(nn.Module):
             in_chans=in_chans,
             embed_dim=self.embed_dim,
         )
-        if pos_embed:
-            self.pos_embed = nn.Parameter(
-                torch.empty(1, self.num_patches, self.embed_dim)
-            )
-        else:
-            self.register_parameter("pos_embed", None)
 
         self.encoder = encoder
         self.norm = nn.LayerNorm(self.embed_dim)
@@ -65,16 +58,10 @@ class VisionColumnformer(nn.Module):
 
         self.apply(init_weights)
 
-    def init_weights(self):
-        if self.pos_embed is not None:
-            trunc_normal_(self.pos_embed, std=0.02)
-
     def forward_features(
         self, x: torch.Tensor
     ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         x = self.patch_embed(x)
-        if self.pos_embed is not None:
-            x = x + self.pos_embed
         x, state = self.encoder(x)
         x = self.norm(x)
         return x, state
@@ -101,12 +88,8 @@ class VisionColumnformer(nn.Module):
     def geometry(self) -> Optional[torch.Tensor]:
         return self.encoder.geometry
 
-    def extra_repr(self) -> str:
-        return f"pos_embed={self.pos_embed is not None}"
-
 
 def _create_vision_columnformer(
-    widths: Optional[Tuple[int, ...]] = None,
     encoder_params: Optional[Dict[str, Any]] = None,
     encoder_defaults: Optional[Dict[str, Any]] = None,
     params: Optional[Dict[str, Any]] = None,
@@ -115,12 +98,6 @@ def _create_vision_columnformer(
 ) -> VisionColumnformer:
     kwargs = {k: v for k, v in kwargs.items() if v is not None}
 
-    if widths:
-        depth_offset = kwargs.pop("depth_offset", 2.0)
-        geometry = multilayer_geometry(widths, depth_offset=depth_offset)
-    else:
-        geometry = None
-
     encoder_kwargs, _ = filter_kwargs(Columnformer, kwargs)
     kwargs = {k: v for k, v in kwargs.items() if k not in encoder_kwargs}
     kwargs, extra_args = filter_kwargs(VisionColumnformer, kwargs)
@@ -128,7 +105,7 @@ def _create_vision_columnformer(
         logging.warning("Extra kwargs to VisionColumnformer: %s", extra_args)
 
     encoder_kwargs = {**encoder_defaults, **encoder_kwargs}
-    encoder = Columnformer(**encoder_params, **encoder_kwargs, geometry=geometry)
+    encoder = Columnformer(**encoder_params, **encoder_kwargs)
 
     kwargs = {**defaults, **kwargs}
     model = VisionColumnformer(encoder=encoder, **params, **kwargs)
@@ -142,12 +119,12 @@ def vision_transformer_tiny_patch16_128(**kwargs):
         "depth": 6,
         "recurrent": False,
         "seq_len": 64,
+        "geometry": multilayer_geometry(8),
     }
     encoder_defaults = {"num_heads": 6}
     params = {"img_size": 128, "patch_size": 16}
     defaults = {}
     model = _create_vision_columnformer(
-        widths=(8,),
         encoder_params=encoder_params,
         encoder_defaults=encoder_defaults,
         params=params,
@@ -164,6 +141,7 @@ def vision_moemixer_tiny_patch16_128(**kwargs):
         "depth": 6,
         "recurrent": False,
         "seq_len": 64,
+        "geometry": multilayer_geometry(8),
     }
     encoder_defaults = {
         "attn_mode": "linmixing",
@@ -176,7 +154,6 @@ def vision_moemixer_tiny_patch16_128(**kwargs):
     params = {"img_size": 128, "patch_size": 16}
     defaults = {}
     model = _create_vision_columnformer(
-        widths=(8,),
         encoder_params=encoder_params,
         encoder_defaults=encoder_defaults,
         params=params,
@@ -193,6 +170,7 @@ def vision_columnformer_ff_tiny_patch16_128(**kwargs):
         "depth": 6,
         "recurrent": False,
         "seq_len": 64,
+        "geometry": multilayer_geometry(8),
     }
     encoder_defaults = {
         "attn_mode": "untied",
@@ -208,7 +186,6 @@ def vision_columnformer_ff_tiny_patch16_128(**kwargs):
     params = {"img_size": 128, "patch_size": 16}
     defaults = {}
     model = _create_vision_columnformer(
-        widths=(8,),
         encoder_params=encoder_params,
         encoder_defaults=encoder_defaults,
         params=params,
@@ -225,6 +202,7 @@ def vision_columnformer_r_tiny_patch16_128(**kwargs):
         "depth": 6,
         "recurrent": True,
         "seq_len": 384,
+        "geometry": multilayer_geometry(6 * (8,)),
     }
     encoder_defaults = {
         "attn_mode": "untied",
@@ -241,7 +219,6 @@ def vision_columnformer_r_tiny_patch16_128(**kwargs):
     params = {"img_size": 128, "patch_size": 16}
     defaults = {}
     model = _create_vision_columnformer(
-        widths=6 * (8,),
         encoder_params=encoder_params,
         encoder_defaults=encoder_defaults,
         params=params,
@@ -258,6 +235,7 @@ def vision_tut_tiny_patch16_128(**kwargs):
         "depth": 6,
         "recurrent": True,
         "seq_len": 384,
+        "geometry": multilayer_geometry(6 * (8,)),
     }
     encoder_defaults = {
         "attn_mode": "classic",
@@ -272,7 +250,41 @@ def vision_tut_tiny_patch16_128(**kwargs):
     params = {"img_size": 128, "patch_size": 16}
     defaults = {}
     model = _create_vision_columnformer(
-        widths=6 * (8,),
+        encoder_params=encoder_params,
+        encoder_defaults=encoder_defaults,
+        params=params,
+        defaults=defaults,
+        **kwargs,
+    )
+    return model
+
+
+@register_model
+def vision_tut_res_tiny_patch16_128(**kwargs):
+    encoder_params = {
+        "embed_dim": 384,
+        "depth": 6,
+        "recurrent": True,
+        "seq_len": 384,
+        "geometry": multilayer_geometry(6 * (8,)),
+        # Direct connections from previous layer to the mlp (skipping attention).
+        # Note that these indices are into `cat([input, x], dim=1)`, so the first layer
+        # gets input, second layer gets first layer output, etc.
+        "direct_edges": torch.arange(384),
+    }
+    encoder_defaults = {
+        "attn_mode": "classic",
+        "mlp_mode": "moe",
+        "norm_mode": "classic",
+        "num_heads": 6,
+        "mlp_ratio": 1.0,
+        "moe_experts": 24,
+        "moe_conserve": False,
+        "attn_bias": True,
+    }
+    params = {"img_size": 128, "patch_size": 16}
+    defaults = {}
+    model = _create_vision_columnformer(
         encoder_params=encoder_params,
         encoder_defaults=encoder_defaults,
         params=params,

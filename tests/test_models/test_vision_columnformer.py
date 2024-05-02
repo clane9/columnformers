@@ -16,6 +16,7 @@ from columnformers.models.vision_columnformer import VisionColumnformer
         "vision_columnformer_ff_tiny_patch16_128",
         "vision_columnformer_r_tiny_patch16_128",
         "vision_tut_tiny_patch16_128",
+        "vision_tut_res_tiny_patch16_128",
     ],
 )
 @pytest.mark.parametrize("global_pool", ["avg", "spatial"])
