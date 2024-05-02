@@ -616,11 +616,12 @@ class Columnformer(nn.Module):
         self, input: torch.Tensor
     ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         x = input
-        if self.recurrent and x.shape[1] < self.seq_len:
+        if self.recurrent and input.shape[1] < self.seq_len:
             x = F.pad(x, (0, 0, 0, self.seq_len - input.shape[1]))
-
         if self.pos_embed is not None:
             x = x + self.pos_embed
+            # ensure input also pos embedded for direct edges
+            input = x[:, : input.shape[1]]
 
         skip_x = None
         states = []
