@@ -118,6 +118,9 @@ class Args:
     pos_embed: Optional[bool] = HfArg(
         aliases=["--pos"], default=None, help="use position embedding"
     )
+    time_embed: Optional[bool] = HfArg(
+        aliases=["--time_embed"], default=None, help="use time embedding"
+    )
     drop_rate: float = HfArg(aliases=["--dr"], default=0.0, help="head dropout rate")
     proj_drop_rate: float = HfArg(
         aliases=["--pdr"], default=0.0, help="projection dropout rate"
@@ -340,6 +343,7 @@ def main(args: Args):
         num_classes=num_classes,
         global_pool=args.global_pool,
         pos_embed=args.pos_embed,
+        time_embed=args.time_embed,
         drop_rate=args.drop_rate,
         proj_drop_rate=args.proj_drop_rate,
         attn_drop_rate=args.attn_drop_rate,
