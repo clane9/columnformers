@@ -535,6 +535,7 @@ class Columnformer(nn.Module):
         moe_conserve: bool = True,
         act_layer: Layer = nn.GELU,
         pos_embed: bool = True,
+        time_embed: bool = False,
         geometry: Optional[torch.Tensor] = None,
         direct_edges: Optional[torch.Tensor] = None,
         init_local_attn: bool = False,
@@ -546,7 +547,7 @@ class Columnformer(nn.Module):
         ), "geometry required for local attention"
         assert (
             direct_edges is None or recurrent
-        ), "direct edges only supported for recurrent models"
+        ), "direct edges only valid for recurrent models"
         assert (
             not init_local_attn or attn_bias
         ), "attn_bias required for local attention"
@@ -554,6 +555,7 @@ class Columnformer(nn.Module):
             assert geometry.shape == (seq_len, seq_len), "invalid geometry shape"
         if direct_edges is not None:
             assert direct_edges.shape == (seq_len,), "invalid direct_edges shape"
+        assert not time_embed or recurrent, "time_embed only valid for recurrent models"
 
         self.embed_dim = embed_dim
         self.depth = depth
@@ -597,6 +599,11 @@ class Columnformer(nn.Module):
         else:
             self.register_parameter("pos_embed", None)
 
+        if time_embed:
+            self.time_embed = nn.Parameter(torch.empty(depth, embed_dim))
+        else:
+            self.register_parameter("time_embed", None)
+
         self.register_buffer("geometry", geometry)
         self.register_buffer("direct_edges", direct_edges)
         self.init_weights()
@@ -611,6 +618,10 @@ class Columnformer(nn.Module):
 
         if self.pos_embed is not None:
             trunc_normal_(self.pos_embed, std=0.02)
+
+        if self.time_embed is not None:
+            # TODO: should time embed std maybe be smaller?
+            trunc_normal_(self.time_embed, std=0.02)
 
     def forward(
         self, input: torch.Tensor
@@ -628,6 +639,11 @@ class Columnformer(nn.Module):
         keys = set()
 
         for step in range(self.depth):
+            if self.recurrent and self.time_embed is not None:
+                x = x + self.time_embed[step]
+                if skip_x is not None:
+                    skip_x = skip_x + self.time_embed[step]
+
             block = self.blocks[0 if self.recurrent else step]
             x, state = block(x, skip_x=skip_x)
 
@@ -652,9 +668,22 @@ class Columnformer(nn.Module):
         return x, state
 
     def extra_repr(self) -> str:
+        if self.geometry is not None:
+            geometry_shape = tuple(self.geometry.shape)
+        else:
+            geometry_shape = None
+
+        if self.direct_edges is not None:
+            direct_edges_shape = tuple(self.direct_edges.shape)
+        else:
+            direct_edges_shape = None
+
         return (
             f"depth={self.depth}, recurrent={self.recurrent}, "
-            f"geometry={None if self.geometry is None else tuple(self.geometry.shape)}, "
+            f"pos_embed={self.pos_embed is not None}, "
+            f"time_embed={self.time_embed is not None}, "
+            f"geometry={geometry_shape}, "
+            f"direct_edges={direct_edges_shape}, "
             f"init_local_attn={self.init_local_attn}, "
             f"local_attn_sigma={self.local_attn_sigma}"
         )
