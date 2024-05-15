@@ -260,14 +260,14 @@ def vision_tut_tiny_patch16_128(**kwargs):
 
 
 @register_model
-def vision_tut_res_tiny_patch16_128(**kwargs):
+def vision_tut_ff_tiny_patch16_128(**kwargs):
     encoder_params = {
         "embed_dim": 384,
         "depth": 6,
         "recurrent": True,
         "seq_len": 384,
         "geometry": multilayer_geometry(6 * (8,)),
-        # Direct connections from previous layer to the mlp (skipping attention).
+        # Direct connections to each layer.
         # Note that these indices are into `cat([input, x], dim=1)`, so the first layer
         # gets input, second layer gets first layer output, etc.
         "direct_edges": torch.arange(384),

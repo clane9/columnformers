@@ -488,15 +488,9 @@ class Block(nn.Module):
                 drop=proj_drop,
             )
 
-    def forward(
-        self, x: torch.Tensor, skip_x: Optional[torch.Tensor] = None
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        # x: input to self-attention
-        # skip_x: direct residual input to mlp
-        skip_x = x if skip_x is None else skip_x
-
+    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         pooled, attn_state = self.attn(self.norm1(x))
-        x = skip_x + pooled if self.skip_attn else pooled
+        x = x + pooled if self.skip_attn else pooled
         embed, mlp_state = self.mlp(self.norm2(x))
         x = x + embed
 
@@ -634,25 +628,26 @@ class Columnformer(nn.Module):
             # ensure input also pos embedded for direct edges
             input = x[:, : input.shape[1]]
 
-        skip_x = None
         states = []
         keys = set()
 
         for step in range(self.depth):
-            if self.recurrent and self.time_embed is not None:
-                x = x + self.time_embed[step]
-                if skip_x is not None:
-                    skip_x = skip_x + self.time_embed[step]
+            if self.recurrent:
+                # Each column may receive direct input from a different column. This
+                # influences the queries and skip input to the MLP. By default, direct
+                # input comes from the column itself at the previous time-step.
+                if self.direct_edges is not None and step > 0:
+                    x = torch.cat([input, x], dim=1)
+                    x = x[:, self.direct_edges]
+
+                if self.time_embed is not None:
+                    x = x + self.time_embed[step]
 
             block = self.blocks[0 if self.recurrent else step]
-            x, state = block(x, skip_x=skip_x)
+            x, state = block(x)
 
             states.append(state)
             keys.update(state.keys())
-
-            if self.recurrent and self.direct_edges is not None:
-                skip_x = torch.cat([input, x], dim=1)
-                skip_x = skip_x[:, self.direct_edges]
 
         # Nb, not all states necessarily have the same keys
         # Eg coef may be absent in case num experts is 1
