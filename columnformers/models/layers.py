@@ -60,17 +60,17 @@ class MixtureLinear(nn.Module):
         self,
         in_features: int,
         out_features: int,
-        rank: int = 16,
+        coef: "MixtureCoefficients",
         bias: bool = True,
     ):
         super().__init__()
         self.in_features = in_features
         self.out_features = out_features
-        self.rank = rank
+        self.coef = coef
 
-        self.weight = nn.Parameter(torch.empty((out_features, in_features, rank)))
+        self.weight = nn.Parameter(torch.empty((out_features, in_features, coef.rank)))
         if bias:
-            self.bias = nn.Parameter(torch.empty(out_features, rank))
+            self.bias = nn.Parameter(torch.empty(out_features, coef.rank))
         else:
             self.register_parameter("bias", None)
         self.reset_parameters()
@@ -80,9 +80,10 @@ class MixtureLinear(nn.Module):
         if self.bias is not None:
             nn.init.zeros_(self.bias)
 
-    def forward(self, input: torch.Tensor, coef: torch.Tensor) -> torch.Tensor:
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
         # input: (B, N, C)
         # coef: (N, R)
+        coef = self.coef()
         # Nb, this implementation for some reason uses significantly fewer flops
         # compared to equivalent alternatives (e.g. einsum) for some reason.
         weight = (coef @ self.weight.transpose(1, 2)).transpose(0, 1)
@@ -94,10 +95,7 @@ class MixtureLinear(nn.Module):
         return output
 
     def extra_repr(self) -> str:
-        return (
-            f"{self.in_features}, {self.out_features}, {self.rank}, "
-            f"bias={self.bias is not None}"
-        )
+        return f"{self.in_features}, {self.out_features}, bias={self.bias is not None}"
 
 
 class MixtureCoefficients(nn.Module):
