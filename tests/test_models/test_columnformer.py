@@ -4,7 +4,7 @@ import pytest
 import torch
 from fvcore.nn import FlopCountAnalysis
 
-from columnformers.models.columnformer import Columnformer
+from columnformers.models.columnformer import Block, Columnformer
 
 CONFIGS = {
     "transformer": {
@@ -105,6 +105,33 @@ def test_model(config: str):
     flops = FlopCountAnalysis(model, x)
     logging.info("FLOPs: %.1fM", flops.total() / 1e6)
     logging.info("Params: %.1fM", sum(p.numel() for p in model.parameters()) / 1e6)
+
+
+def test_moe_block():
+    block = Block(
+        attn_mode="moe",
+        mlp_mode="moe",
+        num_heads=6,
+        seq_len=64,
+        moe_experts=8,
+    )
+
+    # check that all coefficients are tied
+    assert block.coef is block.attn.q.coef
+    assert block.coef is block.attn.k.coef
+    assert block.coef is block.mlp.fc1.coef
+    assert block.coef is block.mlp.fc2.coef
+
+    x = torch.randn(2, 64, 384)
+    x, _ = block(x)
+    loss = x.square().mean()
+    loss.backward()
+
+    # check that all coefficient grads are tied
+    assert torch.allclose(block.coef.weight.grad, block.attn.q.coef.weight.grad)
+    assert torch.allclose(block.coef.weight.grad, block.attn.k.coef.weight.grad)
+    assert torch.allclose(block.coef.weight.grad, block.mlp.fc1.coef.weight.grad)
+    assert torch.allclose(block.coef.weight.grad, block.mlp.fc2.coef.weight.grad)
 
 
 if __name__ == "__main__":

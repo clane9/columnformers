@@ -25,6 +25,7 @@ class AttnMode(Enum):
     SELECTION = "selection"
     MIXING = "mixing"
     LINMIXING = "linmixing"
+    MOE = "moe"
 
 
 class MlpMode(Enum):
@@ -56,20 +57,20 @@ class Attention(nn.Module):
         self,
         dim: int,
         num_heads: int = 8,
-        untied: bool = False,
         seq_len: Optional[int] = None,
         bias: bool = False,
         head_bias: bool = False,
         qkv_bias: Union[bool, Tuple[bool, bool, bool]] = False,
         qk_head_dim: Optional[int] = None,
         no_vp: bool = False,
+        linear_layer: Layer = nn.Linear,
         attn_drop: float = 0.0,
         proj_drop: float = 0.0,
     ):
         super().__init__()
         assert dim % num_heads == 0, "dim should be divisible by num_heads"
         assert not no_vp or proj_drop == 0, "no_vp incompatible with proj_drop"
-        assert not (bias or untied) or seq_len, "seq_len required for bias or untied"
+        assert not bias or seq_len, "seq_len required for bias"
         assert not head_bias or bias, "head_bias requires bias"
 
         self.num_heads = num_heads
@@ -77,7 +78,6 @@ class Attention(nn.Module):
         self.qk_head_dim = qk_head_dim or self.head_dim
         self.scale = self.qk_head_dim**-0.5
         qkv_biases = to_3tuple(qkv_bias)
-        linear_layer = partial(UntiedLinear, seq_len) if untied else nn.Linear
 
         if bias:
             self.bias = nn.Parameter(torch.zeros(seq_len, seq_len))
@@ -280,23 +280,16 @@ class Mlp(nn.Module):
         in_features: int,
         hidden_features: Optional[int] = None,
         out_features: Optional[int] = None,
-        seq_len: Optional[int] = None,
-        untied: bool = False,
+        linear_layer: Layer = nn.Linear,
         act_layer: Optional[Layer] = nn.GELU,
         bias: Union[bool, Tuple[bool, bool]] = True,
         drop: Union[float, Tuple[float, float]] = 0.0,
     ):
         super().__init__()
-        assert not untied or seq_len, "seq_len required for untied"
-
         hidden_features = hidden_features or in_features
         out_features = out_features or in_features
         biases = to_2tuple(bias)
         drop_probs = to_2tuple(drop)
-        if untied:
-            linear_layer = partial(UntiedLinear, seq_len)
-        else:
-            linear_layer = nn.Linear
         act_layer = nn.Identity if act_layer is None else act_layer
 
         self.fc1 = linear_layer(in_features, hidden_features, bias=biases[0])
@@ -312,65 +305,6 @@ class Mlp(nn.Module):
         x = self.fc2(x)
         x = self.drop2(x)
         return x, {}
-
-
-class MixtureMlp(nn.Module):
-    """
-    Mixture of MLP experts. The MLP weights for each token in the sequence are computed
-    as a weighted combination of the individual expert weights. A bit similar to model
-    soups. The coefficients are static per token in the sequence.
-    """
-
-    def __init__(
-        self,
-        in_features: int,
-        hidden_features: Optional[int] = None,
-        out_features: Optional[int] = None,
-        seq_len: Optional[int] = None,
-        num_experts: int = 16,
-        softmax: bool = True,
-        temp_scale: bool = True,
-        act_layer: Optional[Layer] = nn.GELU,
-        bias: Union[bool, Tuple[bool, bool]] = True,
-        drop: Union[float, Tuple[float, float]] = 0.0,
-    ):
-        super().__init__()
-        assert seq_len is not None, "seq_len required for moe"
-        assert num_experts > 1, "num_experts should be > 1"
-        self.num_experts = num_experts
-
-        hidden_features = hidden_features or in_features
-        out_features = out_features or in_features
-        biases = to_2tuple(bias)
-        drop_probs = to_2tuple(drop)
-        act_layer = nn.Identity if act_layer is None else act_layer
-
-        self.coef = MixtureCoefficients(
-            seq_len, rank=num_experts, softmax=softmax, temp_scale=temp_scale
-        )
-        self.fc1 = MixtureLinear(
-            in_features, hidden_features, rank=num_experts, bias=biases[0]
-        )
-        self.act = act_layer()
-        self.drop1 = nn.Dropout(drop_probs[0])
-        self.fc2 = MixtureLinear(
-            hidden_features, out_features, rank=num_experts, bias=biases[1]
-        )
-        self.drop2 = nn.Dropout(drop_probs[1])
-
-    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, State]:
-        coef = self.coef()
-        x = self.fc1(x, coef)
-        x = self.act(x)
-        x = self.drop1(x)
-        x = self.fc2(x, coef)
-        x = self.drop2(x)
-
-        state = {"coef": coef}
-        return x, state
-
-    def extra_repr(self) -> str:
-        return f"num_experts={self.num_experts}"
 
 
 class Block(nn.Module):
@@ -406,18 +340,24 @@ class Block(nn.Module):
         else:
             norm_layer = nn.LayerNorm
 
+        # shared expert coefficient maps
+        if (attn_mode == "moe" or mlp_mode == "moe") and moe_experts > 1:
+            self.coef = MixtureCoefficients(seq_len, rank=moe_experts)
+        else:
+            self.register_module("coef", None)
+
         self.norm1 = norm_layer(dim)
         if attn_mode == "untied":
             self.attn = Attention(
                 dim=dim,
                 num_heads=num_heads,
-                untied=True,
                 seq_len=seq_len,
                 bias=attn_bias,
                 head_bias=attn_head_bias,
                 qkv_bias=qkv_bias,
                 qk_head_dim=qk_head_dim,
                 no_vp=no_vp,
+                linear_layer=partial(UntiedLinear, seq_len),
                 attn_drop=attn_drop,
                 proj_drop=proj_drop,
             )
@@ -445,6 +385,20 @@ class Block(nn.Module):
                 softmax=False,
                 attn_drop=attn_drop,
             )
+        elif attn_mode == "moe" and moe_experts > 1:
+            self.attn = Attention(
+                dim=dim,
+                num_heads=num_heads,
+                seq_len=seq_len,
+                bias=attn_bias,
+                head_bias=attn_head_bias,
+                qkv_bias=qkv_bias,
+                qk_head_dim=qk_head_dim,
+                no_vp=no_vp,
+                linear_layer=partial(MixtureLinear, coef=self.coef),
+                attn_drop=attn_drop,
+                proj_drop=proj_drop,
+            )
         else:
             self.attn = Attention(
                 dim=dim,
@@ -464,19 +418,17 @@ class Block(nn.Module):
             self.mlp = Mlp(
                 in_features=dim,
                 hidden_features=int(dim * mlp_ratio),
-                seq_len=seq_len,
-                untied=True,
+                linear_layer=partial(UntiedLinear, seq_len),
                 act_layer=act_layer,
                 drop=proj_drop,
             )
         elif mlp_mode == "moe" and moe_experts > 1:
             if moe_conserve:
                 mlp_ratio /= moe_experts
-            self.mlp = MixtureMlp(
+            self.mlp = Mlp(
                 in_features=dim,
                 hidden_features=int(dim * mlp_ratio),
-                seq_len=seq_len,
-                num_experts=moe_experts,
+                linear_layer=partial(MixtureLinear, coef=self.coef),
                 act_layer=act_layer,
                 drop=proj_drop,
             )
@@ -495,6 +447,8 @@ class Block(nn.Module):
         x = x + embed
 
         state = {**attn_state, **mlp_state, "features": x}
+        if self.coef is not None:
+            state["coef"] = self.coef()
         return x, state
 
     def extra_repr(self) -> str:
