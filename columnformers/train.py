@@ -101,8 +101,8 @@ class Args:
         help="number of experts for MoE MLP. can be a single value or a list of values, "
         "e.g. '2', '1,1,2,2,4,4'",
     )
-    moe_conserve: bool = HfArg(
-        default=True,
+    moe_conserve: Optional[bool] = HfArg(
+        default=None,
         help="Divide params by num experts "
         "`expert_params = dim * mlp_ratio / num_experts`",
     )
