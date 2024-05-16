@@ -2,6 +2,7 @@ import logging
 from typing import Any, Dict, Literal, Optional, Tuple
 
 import torch
+import torch.nn.functional as F
 from timm.layers import PatchEmbed
 from torch import nn
 
@@ -9,7 +10,7 @@ from columnformers.utils import filter_kwargs
 
 from .columnformer import Columnformer
 from .geometry import multilayer_geometry
-from .layers import SpatialPool, init_weights
+from .layers import MixtureCoefficients, SpatialPool, init_weights
 from .registry import register_model
 
 
@@ -291,4 +292,41 @@ def vision_tut_ff_tiny_patch16_128(**kwargs):
         defaults=defaults,
         **kwargs,
     )
+    return model
+
+
+@register_model
+def vision_transformer_r_tiny_patch16_128(**kwargs):
+    encoder_params = {
+        "attn_mode": "moe",
+        "mlp_mode": "moe",
+        "norm_mode": "moe",
+        "embed_dim": 384,
+        "depth": 6,
+        "recurrent": True,
+        "seq_len": 384,
+        "moe_experts": 6,
+        "moe_conserve": False,
+        "moe_temp_scale": False,
+        "geometry": multilayer_geometry(6 * (8,)),
+        "direct_edges": torch.arange(384),
+    }
+    encoder_defaults = {"num_heads": 6}
+    params = {"img_size": 128, "patch_size": 16}
+    defaults = {}
+    model = _create_vision_columnformer(
+        encoder_params=encoder_params,
+        encoder_defaults=encoder_defaults,
+        params=params,
+        defaults=defaults,
+        **kwargs,
+    )
+
+    # manually set coefficients
+    # weight: (N, E) pre-softmax
+    coef: MixtureCoefficients = model.encoder.blocks[0].coef
+    indices = torch.arange(384, device=coef.weight.device) // 64
+    weight = F.one_hot(indices, coef.rank).log()
+    coef.weight.data.copy_(weight)
+    coef.weight.requires_grad_(False)
     return model

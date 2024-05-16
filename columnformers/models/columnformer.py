@@ -11,6 +11,7 @@ from torch import nn
 from .layers import (
     Layer,
     MixtureCoefficients,
+    MixtureLayerNorm,
     MixtureLinear,
     UntiedLayerNorm,
     UntiedLinear,
@@ -37,6 +38,7 @@ class MlpMode(Enum):
 class NormMode(Enum):
     CLASSIC = "classic"
     UNTIED = "untied"
+    MOE = "moe"
 
 
 class Attention(nn.Module):
@@ -327,6 +329,7 @@ class Block(nn.Module):
         proj_drop: float = 0.0,
         moe_experts: int = 16,
         moe_conserve: bool = True,
+        moe_temp_scale: bool = True,
         act_layer: Layer = nn.GELU,
     ):
         super().__init__()
@@ -335,16 +338,20 @@ class Block(nn.Module):
         norm_mode = NormMode(norm_mode).value
         self.skip_attn = skip_attn
 
-        if norm_mode == "untied":
-            norm_layer = partial(UntiedLayerNorm, seq_len)
-        else:
-            norm_layer = nn.LayerNorm
-
         # shared expert coefficient maps
-        if (attn_mode == "moe" or mlp_mode == "moe") and moe_experts > 1:
-            self.coef = MixtureCoefficients(seq_len, rank=moe_experts)
+        if "moe" in {attn_mode, mlp_mode, norm_mode} and moe_experts > 1:
+            self.coef = MixtureCoefficients(
+                seq_len, rank=moe_experts, temp_scale=moe_temp_scale
+            )
         else:
             self.register_module("coef", None)
+
+        if norm_mode == "untied":
+            norm_layer = partial(UntiedLayerNorm, seq_len)
+        elif norm_mode == "moe":
+            norm_layer = partial(MixtureLayerNorm, coef=self.coef)
+        else:
+            norm_layer = nn.LayerNorm
 
         self.norm1 = norm_layer(dim)
         if attn_mode == "untied":
@@ -481,6 +488,7 @@ class Columnformer(nn.Module):
         proj_drop_rate: float = 0.0,
         moe_experts: Union[int, List[int]] = 16,
         moe_conserve: bool = True,
+        moe_temp_scale: bool = True,
         act_layer: Layer = nn.GELU,
         pos_embed: bool = True,
         time_embed: bool = False,
@@ -537,6 +545,7 @@ class Columnformer(nn.Module):
                 proj_drop=proj_drop_rate,
                 moe_experts=moe_experts[ii],
                 moe_conserve=moe_conserve,
+                moe_temp_scale=moe_temp_scale,
                 act_layer=act_layer,
             )
             for ii in range(num_blocks)
