@@ -342,7 +342,7 @@ def main(args: Args):
         qk_head_dim=args.qk_head_dim,
         no_vp=args.no_vp,
         moe_experts=parse_csv(args.moe_experts),
-        pool_stages=parse_csv(args.pool_stages),
+        pool_stages=parse_csv(args.pool_stages, squeeze=False),
         mlp_conserve=args.mlp_conserve,
         init_local_attn=args.init_local_attn,
         depth_offset=args.depth_offset,
@@ -772,10 +772,10 @@ def validate(
     return loss_m.avg, metrics
 
 
-def parse_csv(text: Optional[str], typ: type = int):
+def parse_csv(text: Optional[str], typ: type = int, squeeze: bool = True):
     if text is not None:
         text = [typ(val) for val in str(text).strip().split(",") if val]
-        if len(text) == 1:
+        if len(text) == 1 and squeeze:
             text = text[0]
     return text
 
