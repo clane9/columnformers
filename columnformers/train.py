@@ -101,7 +101,7 @@ class Args:
         help="number of experts for MoE MLP. can be a single value or a list of values, "
         "e.g. '2', '1,1,2,2,4,4'",
     )
-    moe_conserve: Optional[bool] = HfArg(
+    mlp_conserve: Optional[bool] = HfArg(
         default=None,
         help="Divide params by num experts "
         "`expert_params = dim * mlp_ratio / num_experts`",
@@ -337,7 +337,7 @@ def main(args: Args):
         qk_head_dim=args.qk_head_dim,
         no_vp=args.no_vp,
         moe_experts=parse_csv(args.moe_experts),
-        moe_conserve=args.moe_conserve,
+        mlp_conserve=args.mlp_conserve,
         init_local_attn=args.init_local_attn,
         depth_offset=args.depth_offset,
         num_classes=num_classes,
