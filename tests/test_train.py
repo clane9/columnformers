@@ -70,6 +70,17 @@ configs = {
         overwrite=True,
         debug=True,
     ),
+    "quad": train.Args(
+        model="quadformer_tiny_patch16_128",
+        pool_stages="2,3",
+        dataset="debug-100",
+        workers=0,
+        batch_size=32,
+        out_dir="test_results",
+        name="debug_train_quad",
+        overwrite=True,
+        debug=True,
+    ),
 }
 
 
@@ -82,6 +93,7 @@ configs = {
         "wiring",
         "moe",
         "tut",
+        "quad",
     ],
 )
 def test_train(config: str):
