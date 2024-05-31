@@ -328,7 +328,7 @@ class Block(nn.Module):
         attn_drop: float = 0.0,
         proj_drop: float = 0.0,
         moe_experts: int = 16,
-        moe_conserve: bool = True,
+        mlp_conserve: bool = True,
         moe_temp_scale: bool = True,
         act_layer: Layer = nn.GELU,
     ):
@@ -430,7 +430,7 @@ class Block(nn.Module):
                 drop=proj_drop,
             )
         elif mlp_mode == "moe" and moe_experts > 1:
-            if moe_conserve:
+            if mlp_conserve:
                 mlp_ratio /= moe_experts
             self.mlp = Mlp(
                 in_features=dim,
@@ -487,7 +487,7 @@ class Columnformer(nn.Module):
         attn_drop_rate: float = 0.0,
         proj_drop_rate: float = 0.0,
         moe_experts: Union[int, List[int]] = 16,
-        moe_conserve: bool = True,
+        mlp_conserve: bool = True,
         moe_temp_scale: bool = True,
         act_layer: Layer = nn.GELU,
         pos_embed: bool = True,
@@ -544,7 +544,7 @@ class Columnformer(nn.Module):
                 attn_drop=attn_drop_rate,
                 proj_drop=proj_drop_rate,
                 moe_experts=moe_experts[ii],
-                moe_conserve=moe_conserve,
+                mlp_conserve=mlp_conserve,
                 moe_temp_scale=moe_temp_scale,
                 act_layer=act_layer,
             )

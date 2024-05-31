@@ -150,7 +150,7 @@ def vision_moemixer_tiny_patch16_128(**kwargs):
         "norm_mode": "classic",
         "num_heads": 6,
         "moe_experts": [1, 1, 2, 2, 4, 4],
-        "moe_conserve": True,
+        "mlp_conserve": True,
     }
     params = {"img_size": 128, "patch_size": 16}
     defaults = {}
@@ -245,7 +245,7 @@ def vision_tut_tiny_patch16_128(**kwargs):
         "num_heads": 6,
         "mlp_ratio": 1.0,
         "moe_experts": 24,
-        "moe_conserve": False,
+        "mlp_conserve": False,
         "attn_bias": True,
     }
     params = {"img_size": 128, "patch_size": 16}
@@ -280,7 +280,7 @@ def vision_tut_ff_tiny_patch16_128(**kwargs):
         "num_heads": 6,
         "mlp_ratio": 1.0,
         "moe_experts": 24,
-        "moe_conserve": False,
+        "mlp_conserve": False,
         "attn_bias": True,
     }
     params = {"img_size": 128, "patch_size": 16}
@@ -306,7 +306,7 @@ def vision_transformer_r_tiny_patch16_128(**kwargs):
         "recurrent": True,
         "seq_len": 384,
         "moe_experts": 6,
-        "moe_conserve": False,
+        "mlp_conserve": False,
         "moe_temp_scale": False,
         "geometry": multilayer_geometry(6 * (8,)),
         "direct_edges": torch.arange(384),

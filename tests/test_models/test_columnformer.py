@@ -76,7 +76,7 @@ CONFIGS = {
         "mlp_ratio": 4.0,
         "seq_len": 64,
         "moe_experts": [1, 1, 2, 2, 4, 4],
-        "moe_conserve": True,
+        "mlp_conserve": True,
     },
 }
 
