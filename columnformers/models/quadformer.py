@@ -171,19 +171,23 @@ class Attention(nn.Module):
         num_heads: int = 8,
         qkv_bias: Union[bool, Tuple[bool, bool, bool]] = False,
         linear_layer: Layer = nn.Linear,
+        q_linear_layer: Optional[Layer] = None,
         attn_drop: float = 0.0,
         proj_drop: float = 0.0,
     ):
         super().__init__()
         assert dim % num_heads == 0, "dim should be divisible by num_heads"
+        if q_linear_layer is None:
+            q_linear_layer = linear_layer
 
         self.num_heads = num_heads
         self.head_dim = dim // num_heads
         self.scale = self.head_dim**-0.5
         qkv_biases = to_3tuple(qkv_bias)
 
-        # nb, query bias can act like branch embedding
-        self.q = linear_layer(dim, num_heads * self.head_dim, bias=qkv_biases[0])
+        # nb, query weight/bias can break symmetry between branches
+        # this is why we decouple it from the other layers
+        self.q = q_linear_layer(dim, num_heads * self.head_dim, bias=qkv_biases[0])
         self.k = linear_layer(dim, num_heads * self.head_dim, bias=qkv_biases[1])
         self.v = linear_layer(dim, dim, bias=qkv_biases[2])
         self.proj = linear_layer(dim, dim)
@@ -279,7 +283,9 @@ class Block(nn.Module):
             dim=dim,
             num_heads=num_heads,
             qkv_bias=qkv_bias,
-            linear_layer=linear_layer,
+            # only q is decoupled across blocks, k, v, proj are shared
+            q_linear_layer=linear_layer,
+            linear_layer=nn.Linear,
             attn_drop=attn_drop,
             proj_drop=proj_drop,
         )
