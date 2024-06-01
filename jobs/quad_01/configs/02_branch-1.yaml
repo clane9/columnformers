@@ -1,0 +1,13 @@
+model: quadformer_tiny_patch16_128
+pool_stages: "3"
+mlp_conserve: true
+desc: "Quadformer with single branching and conserved params"
+
+dataset: imagenet-100
+crop_min_scale: 0.33334
+hflip: 0.5
+color_jitter: 0.4
+epochs: 50
+amp: true
+wandb: true
+figure_interval: 5
