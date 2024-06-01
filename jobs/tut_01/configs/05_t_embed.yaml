@@ -1,0 +1,20 @@
+model: vision_tut_res_tiny_patch16_128
+mlp_ratio: 2.0
+moe_experts: 10
+moe_conserve: false
+time_embed: true
+attn_bias: false
+init_local_attn: false
+lr: 3.0e-04
+desc: >
+  Same as 04_ff_skip_v3 except with time embedding.
+  Had to also reduce experts to 10 to avoid OOM.
+
+dataset: imagenet-100
+crop_min_scale: 0.33334
+hflip: 0.5
+color_jitter: 0.4
+epochs: 50
+amp: true
+wandb: true
+figure_interval: 5

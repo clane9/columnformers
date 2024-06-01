@@ -1,0 +1,20 @@
+model: vision_tut_res_tiny_patch16_128
+mlp_ratio: 2.0
+moe_experts: 12
+moe_conserve: false
+attn_bias: false
+init_local_attn: false
+lr: 3.0e-04
+desc: >
+  TUT with direct skip connections from earlier layers (and full pos embedding).
+  Compared to 03_ff_skip_v2, I fixed the model construction to correctly use config
+  args.
+
+dataset: imagenet-100
+crop_min_scale: 0.33334
+hflip: 0.5
+color_jitter: 0.4
+epochs: 50
+amp: true
+wandb: true
+figure_interval: 5
