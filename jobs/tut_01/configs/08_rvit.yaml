@@ -1,0 +1,16 @@
+model: vision_transformer_r_tiny_patch16_128
+time_embed: true
+batch_size: 192
+lr: 2.25e-04
+desc: >
+  Initial run for recurrent ViT. Also uses direct edge input like 06-07.
+  Had to reduce batch size and lr to fit in memory.
+
+dataset: imagenet-100
+crop_min_scale: 0.33334
+hflip: 0.5
+color_jitter: 0.4
+epochs: 50
+amp: true
+wandb: true
+figure_interval: 5

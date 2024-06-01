@@ -1,0 +1,24 @@
+model: vision_tut_ff_tiny_patch16_128
+attn_mode: moe
+norm_mode: moe
+mlp_ratio: 2.0
+moe_experts: 10
+moe_conserve: false
+time_embed: true
+attn_bias: false
+init_local_attn: false
+batch_size: 192
+lr: 2.25e-04
+desc: >
+  Same as 06_ff_skip_v4, but now with MoE attention (and norm). This way, attention is
+  no longer shared across all tokens. Also had to reduce batch size and lr to fit in
+  memory.
+
+dataset: imagenet-100
+crop_min_scale: 0.33334
+hflip: 0.5
+color_jitter: 0.4
+epochs: 50
+amp: true
+wandb: true
+figure_interval: 5
