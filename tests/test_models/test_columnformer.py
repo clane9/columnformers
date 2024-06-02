@@ -75,7 +75,7 @@ CONFIGS = {
         "num_heads": 6,
         "mlp_ratio": 4.0,
         "seq_len": 64,
-        "moe_experts": [1, 1, 2, 2, 4, 4],
+        "num_experts": [1, 1, 2, 2, 4, 4],
         "mlp_conserve": True,
     },
 }
@@ -113,7 +113,7 @@ def test_moe_block():
         mlp_mode="moe",
         num_heads=6,
         seq_len=64,
-        moe_experts=8,
+        num_experts=8,
     )
 
     # check that all coefficients are tied
