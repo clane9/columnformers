@@ -397,15 +397,11 @@ class Quadformer(nn.Module):
         x = self.patch_embed(x)
         x = x + self.pos_embed
 
-        states = []
-        keys = set()
-        for block in self.blocks:
-            x, state = block(x)
+        state = {}
+        for ii, block in enumerate(self.blocks):
+            x, block_state = block(x)
+            state.update({f"blocks.{ii}.{k}": v for k, v in block_state.items()})
 
-            states.append(state)
-            keys.update(state.keys())
-
-        state = {key: torch.stack([s.get(key) for s in states], dim=1) for key in keys}
         return x, state
 
     def forward_head(self, x: torch.Tensor) -> torch.Tensor:

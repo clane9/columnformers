@@ -403,32 +403,15 @@ class Stage(nn.Module):
             pool = torch.eye(self.seq_len, dtype=x.dtype, device=x.device)
             pool = pooled = None
 
-        states = []
-        for block in self.blocks:
-            x, state = block(x, pooled=pooled)
-            states.append(state)
-
-        # all states are shape (batch, depth, ...)
-        state = {
-            key: torch.stack([s.get(key) for s in states], dim=1)
-            for key in ["attn", "features"]
-        }
+        state = {}
+        for ii, block in enumerate(self.blocks):
+            x, block_state = block(x, pooled=pooled)
+            state.update({f"block.{ii}.{k}": v for k, v in block_state.items()})
 
         # add position embedding, pooling, and expert maps to state
-        # add dummy batch and depth dimensions for consistency
-        state["pos_embed"] = self.pos_embed.clone()[None, None]
-        if pool is None:
-            state["pool"] = torch.eye(self.seq_len, dtype=x.dtype, device=x.device)[
-                None, None
-            ]
-        else:
-            state["pool"] = pool[None, None]
-        if self.maps is not None:
-            state["maps"] = self.maps()[None, None]
-        else:
-            state["maps"] = torch.ones(
-                1, 1, self.seq_len, 1, dtype=x.dtype, device=x.device
-            )
+        state["pos_embed"] = self.pos_embed.clone()
+        state["pool"] = pool
+        state["maps"] = self.maps() if self.maps else None
         return x, state
 
 
@@ -519,15 +502,11 @@ class TopoMoETransformer(nn.Module):
         x = self.patch_embed(x)
         x = x + self.pos_embed
 
-        states = []
-        for stage in self.stages:
-            x, state = stage(x)
-            states.append(state)
+        state = {}
+        for ii, stage in enumerate(self.stages):
+            x, stage_state = stage(x)
+            state.update({f"stages.{ii}.{k}": v for k, v in stage_state.items()})
 
-        state = {
-            key: torch.cat([s.get(key) for s in states], dim=1)
-            for key in states[0].keys()  # assuming all states have same keys
-        }
         return x, state
 
     def forward_head(self, x: torch.Tensor) -> torch.Tensor:
