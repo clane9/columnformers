@@ -47,7 +47,7 @@ configs = {
     "moe": train.Args(
         model="vision_moemixer_tiny_patch16_128",
         dataset="debug-100",
-        moe_experts="1,1,2,2,4,4",
+        num_experts="1,1,2,2,4,4",
         wiring_lambd=0.1,
         tv_lambd=0.001,
         workers=0,
@@ -60,7 +60,7 @@ configs = {
     "tut": train.Args(
         model="vision_tut_tiny_patch16_128",
         dataset="debug-100",
-        moe_experts="12",
+        num_experts="12",
         mlp_ratio=2.0,
         wiring_lambd=0.1,
         workers=0,

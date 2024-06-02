@@ -96,7 +96,7 @@ class Args:
     no_vp: Optional[bool] = HfArg(
         aliases=["--novp"], default=None, help="don't use value and projection"
     )
-    moe_experts: Optional[str] = HfArg(
+    num_experts: Optional[str] = HfArg(
         default=None,
         help="number of experts for MoE MLP. can be a single value or a list of values, "
         "e.g. '2', '1,1,2,2,4,4'",
@@ -341,7 +341,7 @@ def main(args: Args):
         attn_head_bias=args.attn_head_bias,
         qk_head_dim=args.qk_head_dim,
         no_vp=args.no_vp,
-        moe_experts=parse_csv(args.moe_experts),
+        num_experts=parse_csv(args.num_experts),
         pool_stages=parse_csv(args.pool_stages, squeeze=False),
         mlp_conserve=args.mlp_conserve,
         init_local_attn=args.init_local_attn,

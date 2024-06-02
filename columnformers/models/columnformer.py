@@ -327,7 +327,7 @@ class Block(nn.Module):
         no_vp: bool = False,
         attn_drop: float = 0.0,
         proj_drop: float = 0.0,
-        moe_experts: int = 16,
+        num_experts: int = 16,
         mlp_conserve: bool = True,
         moe_temp_scale: bool = True,
         act_layer: Layer = nn.GELU,
@@ -339,9 +339,9 @@ class Block(nn.Module):
         self.skip_attn = skip_attn
 
         # shared expert coefficient maps
-        if "moe" in {attn_mode, mlp_mode, norm_mode} and moe_experts > 1:
+        if "moe" in {attn_mode, mlp_mode, norm_mode} and num_experts > 1:
             self.coef = MixtureCoefficients(
-                seq_len, rank=moe_experts, temp_scale=moe_temp_scale
+                seq_len, rank=num_experts, temp_scale=moe_temp_scale
             )
         else:
             self.register_module("coef", None)
@@ -392,7 +392,7 @@ class Block(nn.Module):
                 softmax=False,
                 attn_drop=attn_drop,
             )
-        elif attn_mode == "moe" and moe_experts > 1:
+        elif attn_mode == "moe" and num_experts > 1:
             self.attn = Attention(
                 dim=dim,
                 num_heads=num_heads,
@@ -429,9 +429,9 @@ class Block(nn.Module):
                 act_layer=act_layer,
                 drop=proj_drop,
             )
-        elif mlp_mode == "moe" and moe_experts > 1:
+        elif mlp_mode == "moe" and num_experts > 1:
             if mlp_conserve:
-                mlp_ratio /= moe_experts
+                mlp_ratio /= num_experts
             self.mlp = Mlp(
                 in_features=dim,
                 hidden_features=int(dim * mlp_ratio),
@@ -486,7 +486,7 @@ class Columnformer(nn.Module):
         no_vp: bool = False,
         attn_drop_rate: float = 0.0,
         proj_drop_rate: float = 0.0,
-        moe_experts: Union[int, List[int]] = 16,
+        num_experts: Union[int, List[int]] = 16,
         mlp_conserve: bool = True,
         moe_temp_scale: bool = True,
         act_layer: Layer = nn.GELU,
@@ -523,8 +523,8 @@ class Columnformer(nn.Module):
         num_blocks = 1 if recurrent else depth
         mlp_ratio = _to_list(mlp_ratio, num_blocks)
         assert len(mlp_ratio) == num_blocks, "mlp_ratio length doesn't match depth"
-        moe_experts = _to_list(moe_experts, num_blocks)
-        assert len(moe_experts) == num_blocks, "moe_experts length doesn't match depth"
+        num_experts = _to_list(num_experts, num_blocks)
+        assert len(num_experts) == num_blocks, "num_experts length doesn't match depth"
 
         self.blocks = nn.ModuleList(
             Block(
@@ -543,7 +543,7 @@ class Columnformer(nn.Module):
                 no_vp=no_vp,
                 attn_drop=attn_drop_rate,
                 proj_drop=proj_drop_rate,
-                moe_experts=moe_experts[ii],
+                num_experts=num_experts[ii],
                 mlp_conserve=mlp_conserve,
                 moe_temp_scale=moe_temp_scale,
                 act_layer=act_layer,
