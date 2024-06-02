@@ -1,25 +1,14 @@
 """
-The primate visual cortex has a branching organization. Early layers are characterized
-by retinotopic mapping, narrow receptive fields, and shared orientation-tuned filters. As
-you proceed through the hierarchy, receptive fields widen and tuning becomes more
-specialized. The shared trunk splits into independent streams (e.g. dorsal, ventral),
-which ultimately terminate in multiple highly specialized areas with near global
-receptive field.
+Quad-tree transformer (Quadformer)
 
-The quadformer aims to be a highly oversimplified model of this branching architecture.
-It combines the basic architecture of the transformer with the pooling from convnets and
-branching from mixtures of experts. The architecture consists of a sequence of stages.
-After the first stage, later stages start by pooling the input and "branching", i.e.
-tiling the pooled input. Each branch occupies a block in the patch grid, which are then
-processed by independent attention and mlp modules. The block attention modules pull in
-relevant information from other patches within the same block as well as from other
-blocks. At the start of each stage, attention is also able to pull in higher resolution
-information from the pre-pooled input. The Mlp modules then compute branch-specific
-features.
-
-With this architecture, we will see what kinds of specialization the independent
-branches learn, as well as if there is an accuracy / flops benefit to having
-specialized branches compared to classic ViTs.
+The Quadformer is a simplified baseline for the TopoMoE transformer. Like the
+transformer, it consists of a series of stages consisting of pooling and topographic MoE
+blocks. But rather than learn the pooling and expert assignment maps, we hand-design
+them. The representation map at each stage is the same size. To pool from one stage to
+the next, we do 2x2 average pooling and then tile the result as a 2x2 grid. In later
+stages, this is applied recursively for each block from the prior stage. Experts are
+then statically assigned to the corresponding blocks in the map grid. For increasing
+stages, the assignment maps resemble the branches of a quad tree.
 """
 
 import logging

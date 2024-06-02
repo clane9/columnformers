@@ -1,59 +1,47 @@
 """
-The primate visual cortex has a topographic branching organization. Early layers are
-characterized by retinotopic mapping, narrow receptive fields, and shared
-orientation-tuned filters. As you proceed through the hierarchy, receptive fields widen
-and tuning becomes more specialized. The shared trunk splits into independent streams
-(e.g. dorsal, ventral), which ultimately terminate in multiple highly specialized areas
-with near global receptive field.
+Topographic mixture of experts transformer.
 
-The topographic MoE transformer aims to model this high-level architecture. The model
-consists of a series of stages, each with its own independent topographic
-representational map. For example, for an input patch grid of 8x8, the first stage might
-have a map of size 8x8 matching the input, the second stage could have a larger map of
-size 16x16, and the final stage could have a map size of 32x32.
+The goal of this architecture is to model the topographic organization of the primate
+visual cortex. The model consists of a series of stages, each with its own topographic
+representation map. Each stage starts by mapping the output from the prior stage onto
+the map of the current stage. This is achieved by an associative pooling based on
+position embeddings for the current and previous stage.
 
-Each stage starts by pooling the output of the prior stage. The pooling strategy closely
-follows the routing approach from Soft MoE. The pooling weights, shape (seq_len,
-in_seq_len) are computed by taking dot products between two position embeddings: the one
-for the prior stage (or patch input for the first stage) and the one for the current
-stage. Then we apply softmax as usual. This way, tokens pool from input tokens at
-similar positions, where position is defined by the learned position embeddings.
-Basically, it is associative pooling based on position. Effectively then, the position
-embeddings capture the implicit topography of each map. Furthermore, we can constrain
-the implicit topography by applying eg wiring cost regularization.
+```
+# pos_embed: position embedding for current stage, shape (map_size, dim)
+# in_pos_embed: position embedding for previous stage, shape (in_map_size, dim)
+pool = (pos_embed @ in_pos_embed).softmax(dim=1)
+pooled = pool @ input
+```
 
-After pooling, we apply a series of topographic MoE transformer blocks. The
-representation map is partitioned into areas and each area is assigned a unique expert.
-The mapping of experts to positions uses the same topographic mapping approach as above.
-Each expert has a learned "position" in the position embedding space. And we associate
-experts to tokens based on the correlation between the expert embedding and
-the token position embeddings.
+This mechanism closely follows the Soft-MoE routing mechanism for mapping tokens to
+expert slots. The crucial difference is that our routing is based only on the position,
+not the content of the tokens.
 
-In the attention module, the query weights are independent for each expert, so that each
-expert can learn to select for unique information. But the key/value/projection weights
-are shared. This is done for parsimony, since I don't see a clear reason to decouple the
-key/value/proj weights. It also has some similarity with modern LLM architectures that
-use more query heads than key/value heads.
+After pooling, we apply a series of topographic MoE transformer blocks. Unlike standard
+MoE architectures which dynamically route tokens to experts, in the topographic MoE we
+statically assign experts to positions in the representation map. The mechanism is
+similar to above.
 
-In addition, for the first block in the stage, queries come from the pooled input and
-keys/values come from the full input. In this way, the first attention block effectively
-does cross attention from the previous stage output. This attention can also be seen as
+```
+# pos_embed: position embedding for current stage, shape (map_size, dim)
+# expert_embed: position embedding for the experts, shape (experts, dim)
+maps = (pos_embed @ expert_embed).softmax(dim=1)  # (map_size, experts)
+```
+
+Then the effective weights at each position are computed by combining the weights of the
+independent experts according to the coefficient maps.
+
+In the attention module, the query weights are independent for each expert. This way
+each expert can learn to select for unique information. But the key/value/projection
+weights are shared. In addition, for the first block in the stage, queries come from the
+pooled input and keys/values come from the full input. This way, the first attention
+effectively does cross attention from the previous stage output. This can be seen as
 dynamic content-dependent pooling, in constrast to static position based pooling.
 
-The Mlp is a standard Mlp except for the independent weights for each expert. The per expert Mlp
-hidden dimension can be divided by the number of experts (preserving parameters,
-reducing flops) or left alone (increasing parameters, preserving flops).
-
-With this architecture, we will see what kinds of topography the pooling layers learn.
-For example, whether it arranges positions retinotopically, how it allocates its
-available token capacity to different regions of the image, how it manages the
-transition from retinotopic mapping to semantic mapping. We will also see how experts
-are arranged in the representation maps, how the arrangement relates to the pooling
-topography (e.g. does each expert get a view of the full input, or perhaps do you get
-experts that specialize for the center vs the periphery). Together, by modeling the key
-branching topographic structure of the visual cortex we hope to better understand how
-topography emerges, why it emerges, what kinds of specialized computations emerge, and
-what specialization is good for.
+The Mlp is a standard Mlp except for the topographic expert weight mapping. The per
+expert Mlp hidden dimension can be divided by the number of experts (preserving
+parameters, reducing flops) or left alone (increasing parameters, preserving flops).
 """
 
 import logging
