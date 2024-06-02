@@ -434,16 +434,20 @@ def _to_list(x, length):
         x = [x] * length
     elif len(x) == 1:
         x = x * length
+    elif len(x) != length:
+        raise ValueError(f"Length of x {len(x)} doesn't match target length {length}")
     return x
 
 
-def _create_quadformer(params: Dict[str, Any], defaults: Dict[str, Any], **kwargs):
+def _create_model(
+    cls: type, params: Dict[str, Any], defaults: Dict[str, Any], **kwargs
+):
     kwargs = {k: v for k, v in kwargs.items() if v is not None}
-    kwargs, extra_args = filter_kwargs(Quadformer, kwargs)
+    kwargs, extra_args = filter_kwargs(cls, kwargs)
     if extra_args:
-        logging.warning("Extra kwargs to Quadformer: %s", extra_args)
+        logging.warning("Extra kwargs to %s: %s", cls.__name__, extra_args)
     kwargs = {**defaults, **kwargs}
-    model = Quadformer(**params, **kwargs)
+    model = cls(**params, **kwargs)
     return model
 
 
@@ -460,5 +464,5 @@ def quadformer_tiny_patch16_128(**kwargs):
         "pool_stages": (2, 4),
         "num_heads": 6,
     }
-    model = _create_quadformer(params, defaults, **kwargs)
+    model = _create_model(Quadformer, params, defaults, **kwargs)
     return model
