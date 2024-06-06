@@ -201,6 +201,52 @@ class UntiedLayerNorm(nn.Module):
         )
 
 
+class MixtureLayerNorm(nn.Module):
+    def __init__(
+        self,
+        dim: int,
+        coef: "MixtureCoefficients",
+        eps: float = 1e-5,
+        elementwise_affine: bool = True,
+    ):
+        super().__init__()
+        self.dim = dim
+        self.eps = eps
+        self.elementwise_affine = elementwise_affine
+        self.coef = coef
+
+        if self.elementwise_affine:
+            self.weight = nn.Parameter(torch.empty(dim, coef.rank))
+            self.bias = nn.Parameter(torch.empty(dim, coef.rank))
+        else:
+            self.register_parameter("weight", None)
+            self.register_parameter("bias", None)
+        self.reset_parameters()
+
+    def reset_parameters(self) -> None:
+        if self.elementwise_affine:
+            nn.init.ones_(self.weight)
+            nn.init.zeros_(self.bias)
+
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
+        input = F.layer_norm(input, (self.dim,), eps=self.eps)
+        if self.elementwise_affine:
+            coef = self.coef()
+            weight = coef @ self.weight.t()
+            bias = coef @ self.bias.t()
+            input = input * weight + bias
+        return input
+
+    def no_weight_decay(self) -> List[str]:
+        # Nb, not excluded by default since 2d
+        return ["weight", "bias"]
+
+    def extra_repr(self) -> str:
+        return (
+            f"{self.dim}, eps={self.eps}, elementwise_affine={self.elementwise_affine}"
+        )
+
+
 class SpatialPool(nn.Module):
     """
     Pool a sequence of features with a learned attention weight per class.
