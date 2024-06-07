@@ -54,8 +54,9 @@ from timm.layers import PatchEmbed, trunc_normal_
 from timm.layers.helpers import to_2tuple, to_3tuple
 from torch import nn
 
-from columnformers.utils import filter_kwargs
+from topomoe.misc import filter_kwargs
 
+from . import wiring
 from .registry import register_model
 
 State = Dict[str, torch.Tensor]
@@ -331,6 +332,9 @@ class Stage(nn.Module):
         attn_drop: float = 0.0,
         proj_drop: float = 0.0,
         act_layer: Layer = nn.GELU,
+        wiring_cost_layer: Layer = wiring.L1WiringCost,
+        in_geometry: Optional[torch.Tensor] = None,
+        geometry: Optional[torch.Tensor] = None,
     ):
         super().__init__()
         in_seq_len = in_pos_embed.size(-2)
@@ -338,6 +342,24 @@ class Stage(nn.Module):
             seq_len is None or seq_len == in_seq_len or pool
         ), "changing seq_len requires pool=true"
         self.seq_len = seq_len or in_seq_len
+
+        if in_geometry is not None:
+            assert in_geometry.shape == (
+                seq_len,
+                in_seq_len,
+            ), "expected in_geometry shape (seq_len, in_seq_len)"
+            self.in_wiring_cost = wiring_cost_layer(in_geometry)
+        else:
+            self.register_module("in_wiring_cost", None)
+
+        if geometry is not None:
+            assert geometry.shape == (
+                seq_len,
+                seq_len,
+            ), "expected geometry shape (seq_len, seq_len)"
+            self.wiring_cost = wiring_cost_layer(geometry)
+        else:
+            self.register_module("wiring_cost", None)
 
         if pool:
             # Pool from input tokens to current token space using a topographic map.
@@ -385,22 +407,38 @@ class Stage(nn.Module):
         # spatial topography by doing a 2D embedding of the pooling position embeddings.
         if self.pool:
             pool = self.pool()
+            # Should the position embedding be added to pooled? What would that do?
+            # It might not be necessary, but it could help disambiguate tokens, as well
+            # as train the position embeddings to track data statistics.
             pooled = pool @ x
         else:
-            # dummy pool for state
-            pool = torch.eye(self.seq_len, dtype=x.dtype, device=x.device)
             pool = pooled = None
 
         state = {}
         for ii, block in enumerate(self.blocks):
             x, block_state = block(x, pooled=pooled)
-            state.update({f"block.{ii}.{k}": v for k, v in block_state.items()})
+            state.update({f"blocks.{ii}.{k}": v for k, v in block_state.items()})
+
+        losses = {}
+        if self.in_wiring_cost is not None:
+            if pool is not None:
+                losses["pool.wiring_cost"] = self.in_wiring_cost(pool)
+
+            # input attention cross-attends over the input tokens, has shape
+            # (seq_len, in_seq_len)
+            in_attn = state["blocks.0.attn"]
+            losses["blocks.0.attn.wiring_cost"] = self.wiring_cost(in_attn)
+
+        if self.wiring_cost is not None:
+            for ii in range(1, len(self.blocks)):
+                attn = state[f"blocks.{ii}.attn"]
+                losses[f"blocks.{ii}.attn.wiring_cost"] = self.wiring_cost(attn)
 
         # add position embedding, pooling, and expert maps to state
         state["pos_embed"] = self.pos_embed.clone()
         state["pool"] = pool
         state["maps"] = self.maps() if self.maps else None
-        return x, state
+        return x, losses, state
 
 
 class TopoMoETransformer(nn.Module):
@@ -490,12 +528,14 @@ class TopoMoETransformer(nn.Module):
         x = self.patch_embed(x)
         x = x + self.pos_embed
 
+        losses = {}
         state = {}
         for ii, stage in enumerate(self.stages):
-            x, stage_state = stage(x)
+            x, stage_losses, stage_state = stage(x)
+            losses.update({f"stages.{ii}.{k}": v for k, v in stage_losses.items()})
             state.update({f"stages.{ii}.{k}": v for k, v in stage_state.items()})
 
-        return x, state
+        return x, losses, state
 
     def forward_head(self, x: torch.Tensor) -> torch.Tensor:
         x = self.norm(x)
@@ -506,9 +546,9 @@ class TopoMoETransformer(nn.Module):
         return x
 
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, State]:
-        x, state = self.forward_features(x)
+        x, losses, state = self.forward_features(x)
         x = self.forward_head(x)
-        return x, state
+        return x, losses, state
 
 
 def _init_weights(module: nn.Module):
