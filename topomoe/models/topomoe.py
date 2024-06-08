@@ -385,8 +385,6 @@ class Stage(nn.Module):
 
         self.blocks = nn.ModuleList(
             Block(
-                # do pooling only on first block of the stage
-                pool=self.pool if ii == 0 else None,
                 maps=self.maps,
                 dim=dim,
                 num_heads=num_heads,
@@ -468,13 +466,13 @@ class TopoMoETransformer(nn.Module):
         self.global_pool = global_pool
         num_patches = (img_size // patch_size) ** 2
 
-        self.pos_embed = pos_embed = nn.Parameter(torch.empty(num_patches, embed_dim))
         self.patch_embed = PatchEmbed(
             img_size=img_size,
             patch_size=patch_size,
             in_chans=in_chans,
             embed_dim=embed_dim,
         )
+        self.pos_embed = pos_embed = nn.Parameter(torch.empty(num_patches, embed_dim))
 
         stages = []
         seq_len = _to_list(seq_len, len(depths))
