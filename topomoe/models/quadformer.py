@@ -16,7 +16,6 @@ import math
 from functools import partial
 from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
 
-import numpy as np
 import torch
 import torch.nn.functional as F
 from einops import rearrange
@@ -246,9 +245,8 @@ class Mlp(nn.Module):
 class Block(nn.Module):
     def __init__(
         self,
-        dim: int = 384,
         block: int = 1,
-        pool: bool = False,
+        dim: int = 384,
         num_heads: int = 8,
         mlp_ratio: float = 4.0,
         qkv_bias: Union[bool, Tuple[bool, bool, bool]] = False,
@@ -257,28 +255,19 @@ class Block(nn.Module):
         act_layer: Layer = nn.GELU,
     ):
         super().__init__()
-        assert not pool or block % 2 == 0, "block must be divisible by 2"
-
-        # Nb, norm layer always shared
-        norm_layer = nn.LayerNorm
-        if block > 1:
-            linear_layer = partial(BlockLinear, block)
-        else:
-            linear_layer = nn.Linear
-
-        self.norm1 = norm_layer(dim)
-        self.pool = QuadPool(block // 2) if pool else nn.Identity()
+        self.norm1 = nn.LayerNorm(dim)
+        linear_layer = partial(BlockLinear, block) if block > 1 else nn.Linear
         self.attn = Attention(
             dim=dim,
             num_heads=num_heads,
             qkv_bias=qkv_bias,
             # only q is decoupled across blocks, k, v, proj are shared
-            q_linear_layer=linear_layer,
             linear_layer=nn.Linear,
+            q_linear_layer=linear_layer,
             attn_drop=attn_drop,
             proj_drop=proj_drop,
         )
-        self.norm2 = norm_layer(dim)
+        self.norm2 = nn.LayerNorm(dim)
         self.mlp = Mlp(
             in_features=dim,
             hidden_features=int(dim * mlp_ratio),
@@ -287,12 +276,11 @@ class Block(nn.Module):
             drop=proj_drop,
         )
 
-    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, State]:
+    def forward(
+        self, x: torch.Tensor, pooled: Optional[torch.Tensor] = None
+    ) -> Tuple[torch.Tensor, State]:
         x = self.norm1(x)
-        # pool inputs and branch
-        # input -> 2x2 pooling -> 2x2 tiling
-        # independently in each block, resulting in a quad tree like branching structure
-        pooled = self.pool(x)
+        pooled = self.norm1(pooled) if pooled is not None else x
 
         # attention with queries from pooled input and keys/values from full input
         # independent weights per block
@@ -311,14 +299,57 @@ class Block(nn.Module):
         return x, state
 
 
+class Stage(nn.Module):
+    def __init__(
+        self,
+        in_block: int = 1,
+        pool: bool = False,
+        depth: int = 1,
+        dim: int = 384,
+        num_heads: int = 8,
+        mlp_ratio: float = 4.0,
+        qkv_bias: Union[bool, Tuple[bool, bool, bool]] = False,
+        attn_drop: float = 0.0,
+        proj_drop: float = 0.0,
+        act_layer: Layer = nn.GELU,
+    ):
+        super().__init__()
+        block = in_block * 2 if pool else in_block
+        self.pool = QuadPool(in_block) if pool else nn.Identity()
+        self.blocks = nn.ModuleList(
+            Block(
+                block=block,
+                dim=dim,
+                num_heads=num_heads,
+                mlp_ratio=mlp_ratio,
+                qkv_bias=qkv_bias,
+                attn_drop=attn_drop,
+                proj_drop=proj_drop,
+                act_layer=act_layer,
+            )
+            for ii in range(depth)
+        )
+
+    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, State]:
+        # pool inputs and branch
+        # input -> 2x2 pooling -> 2x2 tiling
+        # independently in each block, resulting in a quad tree like branching structure
+        pooled = self.pool(x)
+
+        state = {}
+        for ii, block in enumerate(self.blocks):
+            x, block_state = block(x, pooled=pooled)
+            state.update({f"blocks.{ii}.{k}": v for k, v in block_state.items()})
+        return x, state
+
+
 class Quadformer(nn.Module):
     def __init__(
         self,
         img_size: int = 128,
         patch_size: int = 16,
         in_chans: int = 3,
-        depth: int = 12,
-        pool_stages: Tuple[int, ...] = (4, 8),
+        depths: Tuple[int, ...] = (4, 4, 4),
         embed_dim: int = 384,
         num_heads: int = 8,
         qkv_bias: Union[bool, Tuple[bool, bool, bool]] = True,
@@ -337,15 +368,6 @@ class Quadformer(nn.Module):
         self.global_pool = global_pool
         num_patches = (img_size // patch_size) ** 2
 
-        blocks = np.ones(depth, dtype=np.int64)
-        for idx in pool_stages:
-            blocks[idx:] *= 2
-        blocks = blocks.tolist()
-
-        mlp_ratio = _to_list(mlp_ratio, depth)
-        if mlp_conserve:
-            mlp_ratio = [r / (b * b) for r, b in zip(mlp_ratio, blocks)]
-
         self.patch_embed = PatchEmbed(
             img_size=img_size,
             patch_size=patch_size,
@@ -354,20 +376,33 @@ class Quadformer(nn.Module):
         )
         self.pos_embed = nn.Parameter(torch.empty(1, num_patches, embed_dim))
 
-        self.blocks = nn.ModuleList(
-            Block(
+        stages = []
+        mlp_ratio = _to_list(mlp_ratio, len(depths))
+
+        for ii, (depth, ratio) in enumerate(zip(depths, mlp_ratio)):
+            # do pooling and double blocks after first stage
+            pool = ii > 0
+            in_block = 1 if ii == 0 else 2 ** (ii - 1)
+            block = in_block * 2 if pool else in_block
+
+            if mlp_conserve:
+                ratio = ratio / (block * block)
+
+            stage = Stage(
+                in_block=in_block,
+                pool=pool,
+                depth=depth,
                 dim=embed_dim,
-                block=blocks[ii],
-                pool=ii in pool_stages,
                 num_heads=num_heads,
-                mlp_ratio=mlp_ratio[ii],
+                mlp_ratio=ratio,
                 qkv_bias=qkv_bias,
                 attn_drop=attn_drop_rate,
                 proj_drop=proj_drop_rate,
                 act_layer=act_layer,
             )
-            for ii in range(depth)
-        )
+            stages.append(stage)
+
+        self.stages = nn.ModuleList(stages)
 
         self.norm = nn.LayerNorm(embed_dim)
         self.head_drop = nn.Dropout(drop_rate)
@@ -386,12 +421,13 @@ class Quadformer(nn.Module):
         x = self.patch_embed(x)
         x = x + self.pos_embed
 
+        losses = {}
         state = {}
-        for ii, block in enumerate(self.blocks):
-            x, block_state = block(x)
-            state.update({f"blocks.{ii}.{k}": v for k, v in block_state.items()})
+        for ii, stage in enumerate(self.stages):
+            x, stage_state = stage(x)
+            state.update({f"stages.{ii}.{k}": v for k, v in stage_state.items()})
 
-        return x, state
+        return x, losses, state
 
     def forward_head(self, x: torch.Tensor) -> torch.Tensor:
         x = self.norm(x)
@@ -402,9 +438,9 @@ class Quadformer(nn.Module):
         return x
 
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, State]:
-        x, state = self.forward_features(x)
+        x, losses, state = self.forward_features(x)
         x = self.forward_head(x)
-        return x, state
+        return x, losses, state
 
 
 def _init_weights(module: nn.Module):
@@ -437,17 +473,28 @@ def _create_model(
 
 
 @register_model
-def quadformer_tiny_patch16_128(**kwargs):
+def quadformer_tiny_2s_patch16_128(**kwargs):
     params = {
         "img_size": 128,
         "patch_size": 16,
         "in_chans": 3,
-        "depth": 6,
+        "depths": (3, 3),
         "embed_dim": 384,
     }
-    defaults = {
-        "pool_stages": (2, 4),
-        "num_heads": 6,
+    defaults = {"num_heads": 6}
+    model = _create_model(Quadformer, params, defaults, **kwargs)
+    return model
+
+
+@register_model
+def quadformer_tiny_3s_patch16_128(**kwargs):
+    params = {
+        "img_size": 128,
+        "patch_size": 16,
+        "in_chans": 3,
+        "depths": (2, 2, 2),
+        "embed_dim": 384,
     }
+    defaults = {"num_heads": 6}
     model = _create_model(Quadformer, params, defaults, **kwargs)
     return model
