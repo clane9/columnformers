@@ -10,7 +10,8 @@ position embeddings for the current and previous stage.
 ```
 # pos_embed: position embedding for current stage, shape (map_size, dim)
 # in_pos_embed: position embedding for previous stage, shape (in_map_size, dim)
-pool = (pos_embed @ in_pos_embed).softmax(dim=1)
+# input: shape (batch, in_map_size, dim)
+pool = (pos_embed @ in_pos_embed.T).softmax(dim=1)
 pooled = pool @ input
 ```
 
@@ -26,11 +27,12 @@ similar to above.
 ```
 # pos_embed: position embedding for current stage, shape (map_size, dim)
 # expert_embed: position embedding for the experts, shape (experts, dim)
-maps = (pos_embed @ expert_embed).softmax(dim=1)  # (map_size, experts)
+maps = (pos_embed @ expert_embed.T).softmax(dim=1)  # (map_size, experts)
 ```
 
 Then the effective weights at each position are computed by combining the weights of the
-independent experts according to the coefficient maps.
+independent experts according to the coefficient maps, similar to SMEAR
+(https://github.com/r-three/smear).
 
 In the attention module, the query weights are independent for each expert. This way
 each expert can learn to select for unique information. But the key/value/projection
