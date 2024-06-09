@@ -334,9 +334,8 @@ class Stage(nn.Module):
         attn_drop: float = 0.0,
         proj_drop: float = 0.0,
         act_layer: Layer = nn.GELU,
-        wiring_cost_layer: Layer = wiring.L1WiringCost,
-        in_geometry: Optional[torch.Tensor] = None,
-        geometry: Optional[torch.Tensor] = None,
+        in_wiring_cost: Optional[nn.Module] = None,
+        wiring_cost: Optional[nn.Module] = None,
     ):
         super().__init__()
         in_seq_len = in_pos_embed.size(-2)
@@ -344,24 +343,6 @@ class Stage(nn.Module):
             seq_len is None or seq_len == in_seq_len or pool
         ), "changing seq_len requires pool=true"
         self.seq_len = seq_len or in_seq_len
-
-        if in_geometry is not None:
-            assert in_geometry.shape == (
-                seq_len,
-                in_seq_len,
-            ), "expected in_geometry shape (seq_len, in_seq_len)"
-            self.in_wiring_cost = wiring_cost_layer(in_geometry)
-        else:
-            self.register_module("in_wiring_cost", None)
-
-        if geometry is not None:
-            assert geometry.shape == (
-                seq_len,
-                seq_len,
-            ), "expected geometry shape (seq_len, seq_len)"
-            self.wiring_cost = wiring_cost_layer(geometry)
-        else:
-            self.register_module("wiring_cost", None)
 
         if pool:
             # Pool from input tokens to current token space using a topographic map.
@@ -399,6 +380,9 @@ class Stage(nn.Module):
             for ii in range(depth)
         )
 
+        self.register_module("in_wiring_cost", in_wiring_cost)
+        self.register_module("wiring_cost", wiring_cost)
+
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, State]:
         # Pooling tokens to tokens, much like soft moe pooling tokens to slots.
         # Importantly though, without some special init or regularization, the pooling
@@ -427,7 +411,7 @@ class Stage(nn.Module):
             # input attention cross-attends over the input tokens, has shape
             # (seq_len, in_seq_len)
             in_attn = state["blocks.0.attn"]
-            losses["blocks.0.attn.wiring_cost"] = self.wiring_cost(in_attn)
+            losses["blocks.0.attn.wiring_cost"] = self.in_wiring_cost(in_attn)
 
         if self.wiring_cost is not None:
             for ii in range(1, len(self.blocks)):
@@ -448,8 +432,8 @@ class TopoMoETransformer(nn.Module):
         patch_size: int = 16,
         in_chans: int = 3,
         depths: Tuple[int, ...] = (4, 4, 4),
+        widths: Optional[Union[int, Tuple[int, ...]]] = None,
         num_experts: Tuple[int, ...] = (1, 4, 16),
-        seq_len: Optional[Union[int, Tuple[int, ...]]] = None,
         embed_dim: int = 384,
         num_heads: int = 8,
         qkv_bias: Union[bool, Tuple[bool, bool, bool]] = True,
@@ -461,12 +445,19 @@ class TopoMoETransformer(nn.Module):
         global_pool: Literal["", "avg"] = "avg",
         num_classes: int = 100,
         drop_rate: float = 0.0,
+        wiring_lambd: float = 0.0,
+        wiring_cost_layer: Layer = wiring.L1WiringCost,
         **kwargs,
     ):
         super().__init__()
         self.num_classes = num_classes
         self.global_pool = global_pool
         num_patches = (img_size // patch_size) ** 2
+        widths = widths or img_size // patch_size
+
+        widths = _to_list(widths, len(depths))
+        mlp_ratio = _to_list(mlp_ratio, len(depths))
+        geo_embeds = geo_embedding(widths) if wiring_lambd > 0 else None
 
         self.patch_embed = PatchEmbed(
             img_size=img_size,
@@ -477,23 +468,30 @@ class TopoMoETransformer(nn.Module):
         self.pos_embed = pos_embed = nn.Parameter(torch.empty(num_patches, embed_dim))
 
         stages = []
-        seq_len = _to_list(seq_len, len(depths))
-        mlp_ratio = _to_list(mlp_ratio, len(depths))
-
-        for ii, (depth, experts, seq, ratio) in enumerate(
-            zip(depths, num_experts, seq_len, mlp_ratio)
+        for ii, (depth, experts, width, ratio) in enumerate(
+            zip(depths, num_experts, widths, mlp_ratio)
         ):
             if mlp_conserve:
                 ratio = ratio / num_experts
 
             # do pooling for stages after first or if initial sequence length doesn't
             # match the patch grid.
-            pool = ii > 0 or seq != seq_len
+            pool = ii > 0 or width != img_size // patch_size
+
+            wiring_cost = in_wiring_cost = None
+            if wiring_lambd > 0:
+                # no input wiring cost from patches to first stage
+                # this could be used to learn the initial mapping from the retina
+                if ii > 0:
+                    in_wiring_cost = wiring_cost_layer(
+                        geo_embeds[ii], geo_embeds[ii - 1], lambd=wiring_lambd
+                    )
+                wiring_cost = wiring_cost_layer(geo_embeds[ii], lambd=wiring_lambd)
 
             stage = Stage(
                 in_pos_embed=pos_embed,
                 pool=pool,
-                seq_len=seq,
+                seq_len=width * width,
                 depth=depth,
                 num_experts=experts,
                 dim=embed_dim,
@@ -503,6 +501,8 @@ class TopoMoETransformer(nn.Module):
                 attn_drop=attn_drop_rate,
                 proj_drop=proj_drop_rate,
                 act_layer=act_layer,
+                in_wiring_cost=in_wiring_cost,
+                wiring_cost=wiring_cost,
             )
 
             # update pos embedding for next stage to the one from the previous stage
@@ -551,6 +551,27 @@ class TopoMoETransformer(nn.Module):
         return x, losses, state
 
 
+def geo_embedding(widths: List[int], depth_offset: float = 2.0) -> torch.Tensor:
+    """
+    Construct a 3D geometric embeddings corresponding to a stack of square layers.
+
+    Args:
+        widths: list of layer widths
+        depth_offset: distance between layers
+
+    Returns:
+        List of geo embeddings, each shape (width * width, 3)
+    """
+    embeds = []
+    for ii, width in enumerate(widths):
+        points = torch.linspace(-width / 2, width / 2, width)
+        embed = torch.cartesian_prod(
+            torch.tensor([ii * depth_offset], dtype=points.dtype), points, points
+        )
+        embeds.append(embed)
+    return embeds
+
+
 def _init_weights(module: nn.Module):
     if isinstance(module, nn.Linear):
         trunc_normal_(module.weight, std=0.02)
@@ -587,7 +608,7 @@ def topomoe_tiny_2s_patch16_128(**kwargs):
         "patch_size": 16,
         "in_chans": 3,
         "depths": (3, 3),
-        "seq_len": 64,
+        "widths": 8,
         "embed_dim": 384,
     }
     defaults = {
@@ -605,7 +626,7 @@ def topomoe_tiny_3s_patch16_128(**kwargs):
         "patch_size": 16,
         "in_chans": 3,
         "depths": (2, 2, 2),
-        "seq_len": 64,
+        "widths": 8,
         "embed_dim": 384,
     }
     defaults = {
