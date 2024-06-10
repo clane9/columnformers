@@ -435,6 +435,7 @@ class BlockSparseLocallyConnected(nn.Module):
 
         idx = []
         idx_start = 0
+        # find the nonzero indices of the flattened input tensor for the first kernel
         for _ in range(self.kernel_height):
             idx.extend(range(idx_start, idx_start + self.kernel_width))
             idx_start += full_in_width
@@ -445,6 +446,9 @@ class BlockSparseLocallyConnected(nn.Module):
         num_rows = 1
 
         for i in range(1, self.num_kernels):
+            # to find the nonzero indices for each subsequent kernel, first find the index
+            # of the top left corner of the kernel then add this to all the elements of the
+            # first set of indices, effectively shifting the window over the input
             if current_w < self.num_kernels_w:
                 start += self.stride_w
                 current_w += 1
