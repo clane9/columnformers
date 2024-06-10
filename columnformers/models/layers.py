@@ -1,4 +1,4 @@
-from typing import Callable, List
+from typing import Callable, List, Tuple
 
 import torch
 import torch.nn.functional as F
@@ -312,7 +312,7 @@ class BlockSparseLinear(nn.Module):
         self.blocksize = blocksize
         self.connectivity = connectivity
 
-        self.linear = nn.Linear(self.in_features, self.out_features, bias=False).to(
+        self.linear = nn.Linear(self.out_features, self.in_features, bias=False).to(
             self.connectivity.device
         )
 
@@ -377,8 +377,108 @@ class BlockSparseLinear(nn.Module):
 class BlockSparseLocallyConnected(nn.Module):
     """
     A locally connected layer implemented using block sparse linear.
-
-    TODO: main step is just computing the connectivity based on conv params. shape
-    should be something like: (out_height * out_width * out_channels, in_height *
-    in_width * in_channels). Then we just use BlockSparseLinear.
     """
+
+    def __init__(
+        self,
+        kernel_dims: Tuple[int, int],
+        in_dims: Tuple[int, int],
+        padding: Tuple[int, int],
+        stride: Tuple[int, int],
+        bias: bool,
+        blocksize: int,
+    ):
+        super().__init__()
+        assert (
+            kernel_dims[0] <= in_dims[0] + 2 * padding[0]
+        ), "Kernel height exceeds input height + padding"
+        assert (
+            kernel_dims[1] <= in_dims[1] + 2 * padding[1]
+        ), "Kernel width exceeds input width + padding"
+        assert torch.cuda.is_available(), "Triton BlockSparse operations require a GPU"
+
+        self.in_height, self.in_width = in_dims
+        self.stride_h, self.stride_w = stride
+        self.padding_h, self.padding_w = padding
+        self.kernel_height, self.kernel_width = kernel_dims
+        self.num_kernels_h = (
+            1
+            + (self.in_height + 2 * self.padding_h - self.kernel_height)
+            // self.stride_h
+        )
+        self.num_kernels_w = (
+            1
+            + (self.in_width + 2 * self.padding_w - self.kernel_width) // self.stride_w
+        )
+        self.num_kernels = self.num_kernels_w * self.num_kernels_h
+
+        connectivity = self._create_connectivity_matrix().cuda()
+
+        self.bsl = BlockSparseLinear(
+            connectivity=connectivity, bias=bias, blocksize=blocksize
+        )
+
+    def _create_connectivity_matrix(self) -> torch.Tensor:
+        """Create a 2D binary connectivity matrix which will mask the linear layer"""
+
+        connectivity_height = (self.in_height + 2 * self.padding_h) * (
+            self.in_width + 2 * self.padding_w
+        )
+        connectivity_width = self.num_kernels
+
+        connectivity = torch.zeros(
+            connectivity_height,
+            connectivity_width,
+        )
+
+        full_in_width = self.in_width + 2 * self.padding_w
+
+        idx = []
+        idx_start = 0
+        for _ in range(self.kernel_height):
+            idx.extend(range(idx_start, idx_start + self.kernel_width))
+            idx_start += full_in_width
+        connectivity[idx, 0] = 1
+
+        start = 0
+        current_w = 1
+        num_rows = 1
+
+        for i in range(1, self.num_kernels):
+            if current_w < self.num_kernels_w:
+                start += self.stride_w
+                current_w += 1
+            else:
+                start += (
+                    (full_in_width * num_rows)
+                    - start
+                    + (self.stride_h - 1) * full_in_width
+                )
+                current_w = 1
+                num_rows += self.stride_h
+            connectivity[[i + start for i in idx], i] = 1
+
+        return connectivity
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        assert x.shape[2] == self.in_height
+        assert x.shape[3] == self.in_width
+
+        padding = (self.padding_w, self.padding_w, self.padding_h, self.padding_h)
+        x = F.pad(x, padding, "constant", 0)
+
+        x = (
+            x.view(
+                x.shape[0],
+                (self.in_height + 2 * self.padding_h)
+                * (self.in_width + 2 * self.padding_w),
+            )
+            .unsqueeze(1)
+            .unsqueeze(1)
+        )
+
+        out = self.bsl(x)
+
+        out = out.reshape(x.shape[0], self.num_kernels_h, self.num_kernels_w)
+
+        return out
