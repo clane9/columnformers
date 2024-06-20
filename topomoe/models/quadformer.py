@@ -290,7 +290,7 @@ class Block(nn.Module):
         # residual on top of pooled input
         # the query/residual is the main path; all other information is pulled in
         # selectively via attention
-        x = x + pooled
+        x = pooled + x
 
         # standard mlp, but independent weights per block
         x = x + self.mlp(self.norm2(x))
@@ -417,7 +417,7 @@ class Quadformer(nn.Module):
         trunc_normal_(self.pos_embed, std=0.02)
         self.apply(_init_weights)
 
-    def forward_features(self, x: torch.Tensor) -> Tuple[torch.Tensor, State]:
+    def forward_features(self, x: torch.Tensor) -> Tuple[torch.Tensor, State, State]:
         x = self.patch_embed(x)
         x = x + self.pos_embed
 
@@ -437,7 +437,7 @@ class Quadformer(nn.Module):
         x = self.head(x)
         return x
 
-    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, State]:
+    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, State, State]:
         x, losses, state = self.forward_features(x)
         x = self.forward_head(x)
         return x, losses, state
