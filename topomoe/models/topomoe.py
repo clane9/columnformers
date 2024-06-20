@@ -118,7 +118,10 @@ class TopoMaps(nn.Module):
         return ["weight", "scale"]
 
     def extra_repr(self) -> str:
-        return f"{self.slots}, token_wise={self.token_wise}"
+        return (
+            f"({self.slots}, {self.pos_embed.size(0)}), "
+            f"token_wise={self.token_wise}"
+        )
 
 
 class TopoLinear(nn.Module):
@@ -138,6 +141,7 @@ class TopoLinear(nn.Module):
         bias: bool = True,
     ):
         super().__init__()
+        assert not maps.token_wise
         self.in_features = in_features
         self.out_features = out_features
 
@@ -310,7 +314,7 @@ class Block(nn.Module):
         # residual on top of pooled input
         # the query/residual is the main path; all other information is pulled in
         # selectively via attention
-        x = x + pooled
+        x = pooled + x
 
         # standard mlp, but independent weights per block
         x = x + self.mlp(self.norm2(x))
@@ -383,7 +387,7 @@ class Stage(nn.Module):
         self.register_module("in_wiring_cost", in_wiring_cost)
         self.register_module("wiring_cost", wiring_cost)
 
-    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, State]:
+    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, State, State]:
         # Pooling tokens to tokens, much like soft moe pooling tokens to slots.
         # Importantly though, without some special init or regularization, the pooling
         # can arbitrarily shuffle tokens. We may be able to use some wiring cost to
@@ -391,10 +395,11 @@ class Stage(nn.Module):
         # spatial topography by doing a 2D embedding of the pooling position embeddings.
         if self.pool:
             pool = self.pool()
+            pooled = pool @ x
             # Should the position embedding be added to pooled? What would that do?
             # It might not be necessary, but it could help disambiguate tokens, as well
             # as train the position embeddings to track data statistics.
-            pooled = pool @ x
+            pooled = pooled + self.pos_embed
         else:
             pool = pooled = None
 
@@ -524,7 +529,7 @@ class TopoMoETransformer(nn.Module):
         trunc_normal_(self.pos_embed, std=0.02)
         self.apply(_init_weights)
 
-    def forward_features(self, x: torch.Tensor) -> Tuple[torch.Tensor, State]:
+    def forward_features(self, x: torch.Tensor) -> Tuple[torch.Tensor, State, State]:
         x = self.patch_embed(x)
         x = x + self.pos_embed
 
@@ -545,13 +550,13 @@ class TopoMoETransformer(nn.Module):
         x = self.head(x)
         return x
 
-    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, State]:
+    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, State, State]:
         x, losses, state = self.forward_features(x)
         x = self.forward_head(x)
         return x, losses, state
 
 
-def geo_embedding(widths: List[int], depth_offset: float = 2.0) -> torch.Tensor:
+def geo_embedding(widths: List[int], depth_offset: float = 0.0) -> List[torch.Tensor]:
     """
     Construct a 3D geometric embeddings corresponding to a stack of square layers.
 
