@@ -1,17 +1,12 @@
-from typing import Callable, List, Tuple
+import warnings
+from typing import Callable, List, Literal, Optional, Tuple
 
 import torch
 import torch.nn.functional as F
-import torch.nn.utils.prune as prune
+from einops import rearrange
 from timm.layers import trunc_normal_
 from torch import nn
-
-try:
-    from triton.ops.blocksparse import matmul as blocksparse_matmul  # noqa
-
-    triton_available = True
-except ImportError:
-    triton_available = False
+from torch.types import _device, _dtype
 
 Layer = Callable[..., nn.Module]
 
@@ -302,18 +297,43 @@ class BlockSparseLinear(nn.Module):
             connectivity
     """
 
-    def __init__(
-        self, connectivity: torch.Tensor, bias: bool = True, blocksize: int = 16
-    ):
-        assert triton_available, "blocksparse linear requires triton"
-        super().__init__()
-        self.in_features = connectivity.shape[0]
-        self.out_features = connectivity.shape[1]
-        self.blocksize = blocksize
-        self.connectivity = connectivity
+    connectivity: torch.Tensor
 
-        self.linear = nn.Linear(self.out_features, self.in_features, bias=False).to(
-            self.connectivity.device
+    def __init__(
+        self, connectivity: torch.Tensor, bias: bool = True, blocksize: int = 32
+    ):
+        super().__init__()
+        device_capability = _cuda_get_device_capability()
+        if device_capability is None or device_capability < (8, 0):
+            warnings.warn(
+                "BlockSparseLinear only supported for CUDA A100 or higher",
+                RuntimeWarning,
+            )
+
+        self.in_features = connectivity.shape[1]
+        self.out_features = connectivity.shape[0]
+        self.blocksize = blocksize
+
+        # convert to torch blocksparse representation if not already
+        connectivity = connectivity.to_sparse_bsr(blocksize).float()
+        self.register_buffer("connectivity", connectivity)
+
+        n_blocks = (self.out_features // blocksize) * (self.in_features // blocksize)
+        nnz_blocks = connectivity.values().size(0)
+        self.sparsity = 1 - (nnz_blocks / n_blocks)
+
+        # Nb, we are using pytorch native block-sparse tensors following this blog:
+        # https://pytorch.org/blog/speeding-up-vits/
+        # We were previously using triton blocksparse matmul, but it seems not very
+        # stable. See here:
+        # https://github.com/triton-lang/triton/pull/4156
+        self.weight = nn.Parameter(
+            torch.sparse_bsr_tensor(
+                crow_indices=connectivity.crow_indices(),
+                col_indices=connectivity.col_indices(),
+                values=torch.empty_like(connectivity.values()),
+                size=connectivity.size(),
+            )
         )
 
         if bias:
@@ -323,54 +343,22 @@ class BlockSparseLinear(nn.Module):
 
         self.reset_parameters()
 
-        prune.custom_from_mask(self.linear, name="weight", mask=connectivity)
-
-        # convert to torch blocksparse representation if not already
-        sparse_connectivity = connectivity.to_sparse_bsr(blocksize)
-
-        # block sparse layout as expected by triton
-        # shape (1, out_features // block, in_features // block)
-        # must be dtype int64
-        layout = torch.sparse_csr_tensor(
-            sparse_connectivity.crow_indices(),
-            sparse_connectivity.col_indices(),
-            torch.ones_like(sparse_connectivity.col_indices()),
-        )
-        layout = layout.to_dense().unsqueeze(0)
-
-        self.sparse_dot_dds = blocksparse_matmul(
-            layout,
-            blocksize,
-            "dds",
-            trans_a=False,
-            trans_b=False,
-            device=self.connectivity.device,
-        )
-
     def reset_parameters(self):
-        # TODO: decide how to best init the weights
-        nn.init.xavier_normal_(self.linear.weight)
+        trunc_normal_(self.weight.values(), std=0.02)
         if self.bias is not None:
             nn.init.zeros_(self.bias)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        batch = x.shape[0]
-
-        weight = self.linear.weight
-        sparse_weight = weight.to_sparse_bsr(self.blocksize).values()
-        sparse_weight = sparse_weight.unsqueeze(0).repeat(batch, 1, 1, 1)
-
-        x = self.sparse_dot_dds(x.to(torch.float16), sparse_weight.to(torch.float16))
-
-        if self.bias is not None:
-            x += self.bias
-
+        # apply sparse connectivity mask
+        self.weight.values().data.mul_(self.connectivity.values())
+        x = F.linear(x, self.weight, self.bias)
         return x
 
     def extra_repr(self) -> str:
         return (
             f"{self.in_features}, {self.out_features}, "
-            f"bias={self.bias is not None}, blocksize={self.blocksize}"
+            f"bias={self.bias is not None}, blocksize={self.blocksize}, "
+            f"sparsity={self.sparsity:.2f}"
         )
 
 
@@ -381,108 +369,146 @@ class BlockSparseLocallyConnected(nn.Module):
 
     def __init__(
         self,
-        kernel_dims: Tuple[int, int],
-        in_dims: Tuple[int, int],
-        padding: Tuple[int, int],
-        stride: Tuple[int, int],
-        bias: bool,
-        blocksize: int,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: int,
+        height: int,
+        depthwise: bool = False,
+        bias: bool = True,
+        blocksize: int = 32,
+        in_shape: Literal["nlc", "nchw"] = "nchw",
     ):
         super().__init__()
-        assert (
-            kernel_dims[0] <= in_dims[0] + 2 * padding[0]
-        ), "Kernel height exceeds input height + padding"
-        assert (
-            kernel_dims[1] <= in_dims[1] + 2 * padding[1]
-        ), "Kernel width exceeds input width + padding"
-        assert torch.cuda.is_available(), "Triton BlockSparse operations require a GPU"
+        assert isinstance(kernel_size, int), "only square kernels supported"
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.height = height
+        self.kernel_size = kernel_size
+        self.depthwise = depthwise
+        self.blocksize = blocksize
+        self.in_shape = in_shape
+        self.channels_last = not depthwise
 
-        self.in_height, self.in_width = in_dims
-        self.stride_h, self.stride_w = stride
-        self.padding_h, self.padding_w = padding
-        self.kernel_height, self.kernel_width = kernel_dims
-        self.num_kernels_h = (
-            1
-            + (self.in_height + 2 * self.padding_h - self.kernel_height)
-            // self.stride_h
+        connectivity = _sparse_local_connectivity(
+            in_channels,
+            out_channels,
+            kernel_size,
+            height,
+            depthwise=depthwise,
+            channels_last=self.channels_last,
         )
-        self.num_kernels_w = (
-            1
-            + (self.in_width + 2 * self.padding_w - self.kernel_width) // self.stride_w
-        )
-        self.num_kernels = self.num_kernels_w * self.num_kernels_h
-
-        connectivity = self._create_connectivity_matrix().cuda()
-
         self.bsl = BlockSparseLinear(
             connectivity=connectivity, bias=bias, blocksize=blocksize
         )
 
-    def _create_connectivity_matrix(self) -> torch.Tensor:
-        """Create a 2D binary connectivity matrix which will mask the linear layer"""
-
-        connectivity_height = (self.in_height + 2 * self.padding_h) * (
-            self.in_width + 2 * self.padding_w
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
+        in_pattern = "n (h w) c" if self.in_shape == "nlc" else "n c h w"
+        out_pattern = "n (h w c)" if self.channels_last else "n (c h w)"
+        output = rearrange(
+            input, f"{in_pattern} -> {out_pattern}", h=self.height, w=self.height
         )
-        connectivity_width = self.num_kernels
+        output = self.bsl(output)
+        output = rearrange(
+            output,
+            f"{out_pattern} -> {in_pattern}",
+            c=self.out_channels,
+            h=self.height,
+            w=self.height,
+        )
+        return output
 
-        connectivity = torch.zeros(
-            connectivity_height,
-            connectivity_width,
+
+def _sparse_local_connectivity(
+    in_channels: int,
+    out_channels: int,
+    kernel_size: int,
+    height: int,
+    depthwise: bool = False,
+    channels_last: bool = False,
+    dtype: _dtype = None,
+    device: _device = None,
+) -> torch.Tensor:
+    """
+    Construct sparse local connectivity matrix, shape
+    (out_channels * height * height, in_channels * height * height). The returned
+    connectivity will have sparse COO layout.
+
+    The connectivity pattern is equivalent to
+    `nn.Conv2d(in_channels, out_channels, kernel_size, stride=1, padding="same")`
+
+    If channels_last is True, the shape of connectivity in einops notation is
+    "(h w cout) (h w cin)". Otherwise, it is "(cout h w) (cin h w)". The latter should
+    be more efficient when depthwise is True (connectivity will be more block sparse).
+    """
+    assert kernel_size % 2 == 1, "kernel_size must be odd"
+    assert (
+        not depthwise or out_channels == in_channels
+    ), "in channels must match out channels for depthwise"
+    N = height * height
+
+    # ij indices of input grid
+    # (h^2, 2)
+    col_indices = torch.cartesian_prod(torch.arange(height), torch.arange(height))
+
+    # conv kernel index offsets. note that the kernel width is required to be odd.
+    # (k^2, 2)
+    kernel_half_width = (kernel_size - 1) // 2
+    kernel_indices = torch.cartesian_prod(
+        torch.arange(-kernel_half_width, kernel_half_width + 1),
+        torch.arange(-kernel_half_width, kernel_half_width + 1),
+    )
+
+    # input edge indices for each output unit. these will be the column indices for the
+    # sparse COO connectivity.
+    # (h^2, k^2, 2)
+    col_indices = col_indices.unsqueeze(1) + kernel_indices.unsqueeze(0)
+
+    # input edge row indices
+    # (h^2, k^2)
+    row_indices = torch.arange(N).unsqueeze(1).repeat(1, kernel_size**2)
+
+    # exclude edges falling outside grid
+    mask = ((col_indices >= 0) & (col_indices < height)).all(axis=-1)
+    col_indices = col_indices[mask]
+    row_indices = row_indices[mask]
+
+    # rasterize column indices
+    col_indices = height * col_indices[..., 0] + col_indices[..., 1]
+
+    # add channel blocks with full or depthwise (diagonal) connectivity
+    if depthwise:
+        channel_indices = torch.arange(out_channels).unsqueeze(1).repeat(1, 2)
+    else:
+        channel_indices = torch.cartesian_prod(
+            torch.arange(out_channels), torch.arange(in_channels)
         )
 
-        full_in_width = self.in_width + 2 * self.padding_w
+    # we can insert the channels axis either at the front or the back
+    # front is better for depthwise=True, back is better for depthwise=False
+    if channels_last:
+        row_indices = out_channels * row_indices.unsqueeze(1) + channel_indices[:, 0]
+        col_indices = in_channels * col_indices.unsqueeze(1) + channel_indices[:, 1]
+    else:
+        row_indices = N * channel_indices[:, 0].unsqueeze(1) + row_indices
+        col_indices = N * channel_indices[:, 1].unsqueeze(1) + col_indices
 
-        idx = []
-        idx_start = 0
-        # find the nonzero indices of the flattened input tensor for the first kernel
-        for _ in range(self.kernel_height):
-            idx.extend(range(idx_start, idx_start + self.kernel_width))
-            idx_start += full_in_width
-        connectivity[idx, 0] = 1
+    row_indices = row_indices.flatten()
+    col_indices = col_indices.flatten()
 
-        start = 0
-        current_w = 1
-        num_rows = 1
-
-        for i in range(1, self.num_kernels):
-            # to find the nonzero indices for each subsequent kernel, first find the index
-            # of the top left corner of the kernel then add this to all the elements of the
-            # first set of indices, effectively shifting the window over the input
-            if current_w < self.num_kernels_w:
-                start += self.stride_w
-                current_w += 1
-            else:
-                start += (
-                    (full_in_width * num_rows)
-                    - start
-                    + (self.stride_h - 1) * full_in_width
-                )
-                current_w = 1
-                num_rows += self.stride_h
-            connectivity[[i + start for i in idx], i] = 1
-
-        return connectivity
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        assert x.shape[2] == self.in_height
-        assert x.shape[3] == self.in_width
-
-        padding = (self.padding_w, self.padding_w, self.padding_h, self.padding_h)
-        x = F.pad(x, padding, "constant", 0)
-
-        x = (
-            x.view(
-                x.shape[0],
-                (self.in_height + 2 * self.padding_h)
-                * (self.in_width + 2 * self.padding_w),
-            )
-            .unsqueeze(1)
-            .unsqueeze(1)
+    # construct sparse connectivity tensor
+    connectivity = (
+        torch.sparse_coo_tensor(
+            torch.stack([row_indices, col_indices]),
+            torch.ones(len(row_indices), dtype=dtype),
+            size=(out_channels * N, in_channels * N),
         )
+        .coalesce()
+        .to(device)
+    )
+    return connectivity
 
-        out = self.bsl(x)
 
-        out = out.reshape(x.shape[0], self.num_kernels_h, self.num_kernels_w)
-
-        return out
+def _cuda_get_device_capability() -> Optional[Tuple[int, int]]:
+    if not torch.cuda.is_available():
+        return None
+    return torch.cuda.get_device_capability()
