@@ -297,7 +297,9 @@ class BlockSparseLinear(nn.Module):
             connectivity
     """
 
-    connectivity: torch.Tensor
+    crow_indices: torch.Tensor
+    col_indices: torch.Tensor
+    mask: torch.Tensor
 
     def __init__(
         self, connectivity: torch.Tensor, bias: bool = True, blocksize: int = 32
@@ -307,7 +309,7 @@ class BlockSparseLinear(nn.Module):
         if device_capability is None or device_capability < (8, 0):
             warnings.warn(
                 "BlockSparseLinear only supported for CUDA A100 or higher",
-                RuntimeWarning,
+                UserWarning,
             )
 
         self.in_features = connectivity.shape[1]
@@ -316,26 +318,19 @@ class BlockSparseLinear(nn.Module):
 
         # convert to torch blocksparse representation if not already
         connectivity = connectivity.to_sparse_bsr(blocksize).float()
-        self.register_buffer("connectivity", connectivity)
+        self.register_buffer("crow_indices", connectivity.crow_indices())
+        self.register_buffer("col_indices", connectivity.col_indices())
+        self.register_buffer("mask", connectivity.values())
 
         n_blocks = (self.out_features // blocksize) * (self.in_features // blocksize)
         nnz_blocks = connectivity.values().size(0)
         self.sparsity = 1 - (nnz_blocks / n_blocks)
 
-        # Nb, we are using pytorch native block-sparse tensors following this blog:
-        # https://pytorch.org/blog/speeding-up-vits/
-        # We were previously using triton blocksparse matmul, but it seems not very
-        # stable. See here:
-        # https://github.com/triton-lang/triton/pull/4156
-        self.weight = nn.Parameter(
-            torch.sparse_bsr_tensor(
-                crow_indices=connectivity.crow_indices(),
-                col_indices=connectivity.col_indices(),
-                values=torch.empty_like(connectivity.values()),
-                size=connectivity.size(),
-            )
-        )
-
+        # The weight parameter is just the sparse bsr values. We construct the sparse
+        # bsr tensor on the fly. Trying to use a sparse bsr layout parameter doesn't
+        # work. Mapping the model to cuda fails. The tensor container is mapped but not
+        # the underlying values.
+        self.weight = nn.Parameter(torch.empty_like(connectivity.values()))
         if bias:
             self.bias = nn.Parameter(torch.empty(self.out_features))
         else:
@@ -344,14 +339,21 @@ class BlockSparseLinear(nn.Module):
         self.reset_parameters()
 
     def reset_parameters(self):
-        trunc_normal_(self.weight.values(), std=0.02)
+        trunc_normal_(self.weight, std=0.02)
+        self.weight.data.mul_(self.mask)
         if self.bias is not None:
             nn.init.zeros_(self.bias)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # apply sparse connectivity mask
-        self.weight.values().data.mul_(self.connectivity.values())
-        x = F.linear(x, self.weight, self.bias)
+        weight = self.mask * self.weight
+        weight = torch.sparse_bsr_tensor(
+            crow_indices=self.crow_indices,
+            col_indices=self.col_indices,
+            values=weight,
+            size=(self.out_features, self.in_features),
+        )
+        x = F.linear(x, weight, self.bias)
         return x
 
     def extra_repr(self) -> str:
