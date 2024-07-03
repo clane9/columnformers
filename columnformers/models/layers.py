@@ -378,7 +378,7 @@ class BlockSparseLocallyConnected(nn.Module):
         depthwise: bool = False,
         bias: bool = True,
         blocksize: int = 32,
-        in_shape: Literal["nlc", "nchw"] = "nchw",
+        in_shape: Literal["nlc", "nchw", "nd"] = "nchw",
     ):
         super().__init__()
         assert isinstance(kernel_size, int), "only square kernels supported"
@@ -404,19 +404,25 @@ class BlockSparseLocallyConnected(nn.Module):
         )
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
-        in_pattern = "n (h w) c" if self.in_shape == "nlc" else "n c h w"
-        out_pattern = "n (h w c)" if self.channels_last else "n (c h w)"
-        output = rearrange(
-            input, f"{in_pattern} -> {out_pattern}", h=self.height, w=self.height
-        )
-        output = self.bsl(output)
-        output = rearrange(
-            output,
-            f"{out_pattern} -> {in_pattern}",
-            c=self.out_channels,
-            h=self.height,
-            w=self.height,
-        )
+        needs_reshape = self.in_shape != "nd"
+
+        if needs_reshape:
+            in_pattern = "n (h w) c" if self.in_shape == "nlc" else "n c h w"
+            out_pattern = "n (h w c)" if self.channels_last else "n (c h w)"
+            input = rearrange(
+                input, f"{in_pattern} -> {out_pattern}", h=self.height, w=self.height
+            )
+
+        output = self.bsl(input)
+
+        if needs_reshape:
+            output = rearrange(
+                output,
+                f"{out_pattern} -> {in_pattern}",
+                c=self.out_channels,
+                h=self.height,
+                w=self.height,
+            )
         return output
 
 
