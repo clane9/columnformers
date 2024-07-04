@@ -56,7 +56,7 @@ from timm.layers import PatchEmbed, trunc_normal_
 from timm.layers.helpers import to_2tuple, to_3tuple
 from torch import nn
 
-from topomoe.misc import filter_kwargs
+from topomoe.utils import filter_kwargs
 
 from . import wiring
 from .registry import register_model
@@ -451,7 +451,7 @@ class TopoMoETransformer(nn.Module):
         num_classes: int = 100,
         drop_rate: float = 0.0,
         wiring_lambd: float = 0.0,
-        wiring_cost_layer: Layer = wiring.L1WiringCost,
+        wiring_sigma: float = 2.0,
         **kwargs,
     ):
         super().__init__()
@@ -462,7 +462,14 @@ class TopoMoETransformer(nn.Module):
 
         widths = _to_list(widths, len(depths))
         mlp_ratio = _to_list(mlp_ratio, len(depths))
-        geo_embeds = geo_embedding(widths) if wiring_lambd > 0 else None
+
+        if wiring_lambd > 0:
+            geo_embeds = geo_embedding(widths)
+            wiring_cost_layer = partial(
+                wiring.CrossEntropyWiringCost, lambd=wiring_lambd, sigma=wiring_sigma
+            )
+        else:
+            geo_embeds = wiring_cost_layer = None
 
         self.patch_embed = PatchEmbed(
             img_size=img_size,
@@ -489,9 +496,9 @@ class TopoMoETransformer(nn.Module):
                 # this could be used to learn the initial mapping from the retina
                 if ii > 0:
                     in_wiring_cost = wiring_cost_layer(
-                        geo_embeds[ii], geo_embeds[ii - 1], lambd=wiring_lambd
+                        geo_embeds[ii], geo_embeds[ii - 1]
                     )
-                wiring_cost = wiring_cost_layer(geo_embeds[ii], lambd=wiring_lambd)
+                wiring_cost = wiring_cost_layer(geo_embeds[ii])
 
             stage = Stage(
                 in_pos_embed=pos_embed,
@@ -540,6 +547,9 @@ class TopoMoETransformer(nn.Module):
             losses.update({f"stages.{ii}.{k}": v for k, v in stage_losses.items()})
             state.update({f"stages.{ii}.{k}": v for k, v in stage_state.items()})
 
+        # reduce individual layer wiring costs
+        losses = {"wiring_cost": sum(losses.values()) / len(losses)}
+
         return x, losses, state
 
     def forward_head(self, x: torch.Tensor) -> torch.Tensor:
@@ -556,7 +566,7 @@ class TopoMoETransformer(nn.Module):
         return x, losses, state
 
 
-def geo_embedding(widths: List[int], depth_offset: float = 0.0) -> List[torch.Tensor]:
+def geo_embedding(widths: List[int], depth_offset: float = 2.0) -> List[torch.Tensor]:
     """
     Construct a 3D geometric embeddings corresponding to a stack of square layers.
 

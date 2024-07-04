@@ -7,6 +7,7 @@ import torch
 import torch.nn.functional as F
 from einops import rearrange
 from matplotlib import pyplot as plt
+from matplotlib.figure import Figure
 from torch import nn
 
 from .registry import register_figure
@@ -28,13 +29,19 @@ class AttentionGrid(nn.Module):
         self.pattern = re.compile(pattern)
         self.as_maps = as_maps
 
-    def forward(self, state: Dict[str, torch.Tensor]):
+    def forward(self, state: Dict[str, torch.Tensor]) -> Dict[str, Figure]:
         figures = {}
         for k, v in state.items():
-            if self.pattern.search(k):
+            if self.pattern.search(k) and v is not None:
+                # add batch, head dim for pool maps
+                if v.ndim == 2:
+                    v = v.view((1, 1, *v.size()))
                 f = attn_grid(v, as_maps=self.as_maps, title=k)
                 figures[f"{k}.attn_grid"] = f
         return figures
+
+    def extra_repr(self) -> str:
+        return f"pattern='{self.pattern.pattern}', as_maps={self.as_maps}"
 
 
 def attn_grid(

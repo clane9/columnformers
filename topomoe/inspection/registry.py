@@ -1,12 +1,12 @@
-from typing import Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union
 
 import torch
 from matplotlib import figure
 
 State = Dict[str, torch.Tensor]
-Figure = Callable[[State], Optional[figure.Figure]]
+FigureBuilder = Callable[[State], Dict[str, figure.Figure]]
 
-_FIGURES: Dict[str, Callable[..., Figure]] = {}
+_FIGURES: Dict[str, Callable[..., FigureBuilder]] = {}
 
 
 def register_figure(name_or_func: Union[Optional[str], Callable] = None):
@@ -22,11 +22,19 @@ def register_figure(name_or_func: Union[Optional[str], Callable] = None):
     return _decorator
 
 
-def create_figure(name: str, **kwargs) -> Figure:
+def create_figure(name: str, **kwargs) -> FigureBuilder:
     if name not in _FIGURES:
         raise ValueError(f"Figure {name} not registered")
     fig = _FIGURES[name](**kwargs)
     return fig
+
+
+def create_figures(
+    cfg: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> Dict[str, FigureBuilder]:
+    cfg = cfg or {name: {} for name in list_figures()}
+    figs = {name: create_figure(name, **kwargs) for name, kwargs in cfg.items()}
+    return figs
 
 
 def list_figures() -> List[str]:

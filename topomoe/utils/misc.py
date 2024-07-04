@@ -8,10 +8,13 @@ import logging
 import os
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
 import torch
+
+from .slug import random_slug
 
 
 class ClusterEnv:
@@ -124,6 +127,21 @@ def get_sha():
         pass
     message = f"sha: {sha}, status: {diff}, branch: {branch}"
     return message
+
+
+def get_exp_name(seed: int, prefix: Optional[str] = None):
+    """
+    Generate a unique experiment name based on a prefix and a random seed.
+
+    Example::
+        >>> get_exp_name("my-experiment", 123)
+        >>> "202309011000-my-experiment-clumsy-cricket"
+    """
+    name = datetime.now().strftime("%y%m%d%H%M%S")
+    if prefix:
+        name = name + "-" + prefix
+    name = name + "-" + random_slug(seed=seed)
+    return name
 
 
 def filter_kwargs(func: Callable, kwargs: Dict[str, Any]):

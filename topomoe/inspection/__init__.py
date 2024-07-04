@@ -1,6 +1,7 @@
 from . import figures  # noqa
 from .registry import (  # noqa
-    Figure,
+    FigureBuilder,
     create_figure,
+    create_figures,
     list_figures,
 )

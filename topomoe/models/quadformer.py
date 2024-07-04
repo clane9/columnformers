@@ -23,7 +23,7 @@ from timm.layers import PatchEmbed, trunc_normal_
 from timm.layers.helpers import to_2tuple, to_3tuple
 from torch import nn
 
-from columnformers.utils import filter_kwargs
+from topomoe.utils import filter_kwargs
 
 from .registry import register_model
 
@@ -493,6 +493,20 @@ def quadformer_tiny_3s_patch16_128(**kwargs):
         "patch_size": 16,
         "in_chans": 3,
         "depths": (2, 2, 2),
+        "embed_dim": 384,
+    }
+    defaults = {"num_heads": 6}
+    model = _create_model(Quadformer, params, defaults, **kwargs)
+    return model
+
+
+@register_model
+def vision_transformer_tiny_patch16_128(**kwargs):
+    params = {
+        "img_size": 128,
+        "patch_size": 16,
+        "in_chans": 3,
+        "depths": (6,),
         "embed_dim": 384,
     }
     defaults = {"num_heads": 6}
