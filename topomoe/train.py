@@ -269,6 +269,7 @@ def main(args: Args):
         dataset_train,
         input_size=input_size,
         batch_size=args.batch_size,
+        is_training=True,
         scale=args.scale,
         ratio=args.ratio,
         hflip=args.hflip,
@@ -506,6 +507,7 @@ def train_one_epoch(
             losses["class_loss"] = loss_fn(output, target)
         loss = sum(losses.values())
 
+        state = {"image": input, "target": target, **state}
         loss_item = to_item(loss, clust=clust)
         losses_items = {k: to_item(v, clust=clust) for k, v in losses.items()}
         metrics = losses_items.copy()
@@ -646,6 +648,7 @@ def validate(
         losses["class_loss"] = loss_fn(output, target)
         loss = sum(losses.values())
 
+        state = {"image": input, "target": target, **state}
         loss_item = to_item(loss, clust=clust)
         losses_items = {k: to_item(v, clust=clust) for k, v in losses.items()}
         metrics = losses_items.copy()

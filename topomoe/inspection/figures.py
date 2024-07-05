@@ -24,10 +24,12 @@ class AttentionGrid(nn.Module):
         self,
         pattern: str = r"(\.pool|\.attn)",
         as_maps: bool = True,
+        num_examples: int = 4,
     ):
         super().__init__()
         self.pattern = re.compile(pattern)
         self.as_maps = as_maps
+        self.num_examples = num_examples
 
     def forward(self, state: Dict[str, torch.Tensor]) -> Dict[str, Figure]:
         figures = {}
@@ -36,7 +38,9 @@ class AttentionGrid(nn.Module):
                 # add batch, head dim for pool maps
                 if v.ndim == 2:
                     v = v.view((1, 1, *v.size()))
-                f = attn_grid(v, as_maps=self.as_maps, title=k)
+                f = attn_grid(
+                    v, as_maps=self.as_maps, num_examples=self.num_examples, title=k
+                )
                 figures[f"{k}.attn_grid"] = f
         return figures
 
@@ -46,7 +50,7 @@ class AttentionGrid(nn.Module):
 
 def attn_grid(
     attn: torch.Tensor,
-    num_examples: int = 3,
+    num_examples: int = 4,
     head: Optional[int] = 0,
     as_maps: bool = True,
     pad: int = 1,
@@ -95,6 +99,51 @@ def attn_grid(
 
     if title is not None:
         plt.suptitle(title, fontsize="medium")
+    plt.tight_layout(pad=0.5)
+    return f
+
+
+@register_figure("image_grid")
+class ImageGrid(nn.Module):
+    def __init__(
+        self,
+        num_examples: int = 32,
+    ):
+        super().__init__()
+        self.num_examples = num_examples
+
+    def forward(self, state: Dict[str, torch.Tensor]) -> Dict[str, Figure]:
+        images = state.get("image")
+        if images is None:
+            return {}
+        return {"image": image_grid(images, num_examples=self.num_examples)}
+
+
+def image_grid(
+    images: torch.Tensor,
+    num_examples: int = 32,
+    num_col: int = 8,
+    plotw: float = 3.0,
+    ploth: float = 3.0,
+):
+    num_examples = min(num_examples, len(images))
+    assert images.ndim == 4 and images.shape[1] == 3
+    assert num_examples % num_col == 0
+
+    images = images.detach()[:num_examples]
+    images = (images - images.min()) / (images.max() - images.min())
+
+    nr = num_examples // num_col
+    nc = num_col
+    f, axs = plt.subplots(nr, nc, figsize=(nc * plotw, nr * ploth), squeeze=False)
+    axs = axs.flatten()
+
+    idx = 0
+    for ii in range(num_examples):
+        plt.sca(axs[idx])
+        imshow(images[ii])
+        idx += 1
+
     plt.tight_layout(pad=0.5)
     return f
 
