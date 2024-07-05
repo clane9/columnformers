@@ -464,7 +464,7 @@ class TopoMoETransformer(nn.Module):
         mlp_ratio = _to_list(mlp_ratio, len(depths))
 
         if wiring_lambd > 0:
-            geo_embeds = geo_embedding(widths)
+            geo_embeds = wiring.geo_embedding(widths)
             wiring_cost_layer = partial(
                 wiring.CrossEntropyWiringCost, lambd=wiring_lambd, sigma=wiring_sigma
             )
@@ -564,27 +564,6 @@ class TopoMoETransformer(nn.Module):
         x, losses, state = self.forward_features(x)
         x = self.forward_head(x)
         return x, losses, state
-
-
-def geo_embedding(widths: List[int], depth_offset: float = 2.0) -> List[torch.Tensor]:
-    """
-    Construct a 3D geometric embeddings corresponding to a stack of square layers.
-
-    Args:
-        widths: list of layer widths
-        depth_offset: distance between layers
-
-    Returns:
-        List of geo embeddings, each shape (width * width, 3)
-    """
-    embeds = []
-    for ii, width in enumerate(widths):
-        points = torch.linspace(-width / 2, width / 2, width)
-        embed = torch.cartesian_prod(
-            torch.tensor([ii * depth_offset], dtype=points.dtype), points, points
-        )
-        embeds.append(embed)
-    return embeds
 
 
 def _init_weights(module: nn.Module):

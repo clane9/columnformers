@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import List, Optional
 
 import torch
 import torch.nn.functional as F
@@ -71,3 +71,24 @@ class CrossEntropyWiringCost(nn.Module):
 
     def extra_repr(self) -> str:
         return f"{tuple(self.weight.shape)}, lambd={self.lambd}, sigma={self.sigma}"
+
+
+def geo_embedding(widths: List[int], depth_offset: float = 2.0) -> List[torch.Tensor]:
+    """
+    Construct a 3D geometric embeddings corresponding to a stack of square layers.
+
+    Args:
+        widths: list of layer widths
+        depth_offset: distance between layers
+
+    Returns:
+        List of geo embeddings, each shape (width * width, 3)
+    """
+    embeds = []
+    for ii, width in enumerate(widths):
+        points = torch.linspace(-width / 2, width / 2, width)
+        embed = torch.cartesian_prod(
+            torch.tensor([ii * depth_offset], dtype=points.dtype), points, points
+        )
+        embeds.append(embed)
+    return embeds
