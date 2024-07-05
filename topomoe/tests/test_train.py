@@ -34,6 +34,20 @@ configs = {
         overwrite=True,
         debug=True,
     ),
+    "aug": train.Args(
+        name="debug_train_aug",
+        out_dir="topomoe/test_results",
+        model="vision_transformer_tiny_patch16_128",
+        dataset="hfds/clane9/imagenet-100",
+        scale=[0.1, 0.3],
+        ratio=[1 / 4, 4 / 1],
+        hflip=0.5,
+        color_jitter=0.4,
+        workers=0,
+        batch_size=32,
+        overwrite=True,
+        debug=True,
+    ),
 }
 
 
@@ -43,6 +57,7 @@ configs = {
         "transformer",
         "quadformer",
         "topomoe",
+        "aug",
     ],
 )
 def test_train(config: str):
