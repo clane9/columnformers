@@ -23,10 +23,9 @@ def train_state() -> Dict[str, torch.Tensor]:
     return state
 
 
-@pytest.mark.parametrize("as_maps", [False, True])
-def test_attn_grid(as_maps: bool, train_state: Dict[str, torch.Tensor]):
-    figure_fun = create_figure("attn_grid", as_maps=as_maps)
-    outdir = OUTDIR / f"attn_grid_maps-{int(as_maps)}"
+def test_attn_grid(train_state: Dict[str, torch.Tensor]):
+    figure_fun = create_figure("attn_maps")
+    outdir = OUTDIR / "attn_maps"
     outdir.mkdir(exist_ok=True)
     figures = figure_fun(train_state)
     for name, fig in figures.items():
