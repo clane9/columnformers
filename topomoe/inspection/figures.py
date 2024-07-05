@@ -18,34 +18,71 @@ plt.rcParams["font.size"] = 10
 plt.style.use("ggplot")
 
 
-@register_figure("attn_grid")
-class AttentionGrid(nn.Module):
-    def __init__(
-        self,
-        pattern: str = r"(\.pool|\.attn)",
-        as_maps: bool = True,
-        num_examples: int = 4,
-    ):
+@register_figure("feat_corr_maps")
+class FeatureCorrMaps(nn.Module):
+    pattern = re.compile(r"\.features")
+
+    def __init__(self, num_examples: int = 4):
         super().__init__()
-        self.pattern = re.compile(pattern)
-        self.as_maps = as_maps
         self.num_examples = num_examples
 
     def forward(self, state: Dict[str, torch.Tensor]) -> Dict[str, Figure]:
         figures = {}
         for k, v in state.items():
             if self.pattern.search(k) and v is not None:
-                # add batch, head dim for pool maps
-                if v.ndim == 2:
-                    v = v.view((1, 1, *v.size()))
+                # B, N, C
+                feat = F.normalize(v.detach(), dim=-1)
+                feat_corr = feat @ feat.transpose(-2, -1)
+                feat_corr = feat_corr.unsqueeze(1)  # add dummy head dim
                 f = attn_grid(
-                    v, as_maps=self.as_maps, num_examples=self.num_examples, title=k
+                    feat_corr,
+                    num_examples=self.num_examples,
+                    title=f"{k} feat corr maps",
                 )
-                figures[f"{k}.attn_grid"] = f
+                figures[k] = f
         return figures
 
     def extra_repr(self) -> str:
-        return f"pattern='{self.pattern.pattern}', as_maps={self.as_maps}"
+        return f"num_examples={self.num_examples}"
+
+
+@register_figure("pool_maps")
+class PoolMaps(nn.Module):
+    pattern = re.compile(r"\.pool")
+
+    def forward(self, state: Dict[str, torch.Tensor]) -> Dict[str, Figure]:
+        figures = {}
+        for k, v in state.items():
+            if self.pattern.search(k) and v is not None:
+                # N, M
+                pool = v.detach()
+                pool = pool.view((1, 1, *pool.size()))  # add dummy batch head dim
+                f = attn_grid(pool, num_examples=1, title=f"{k} pool maps")
+                figures[k] = f
+        return figures
+
+
+@register_figure("attn_maps")
+class AttentionMaps(nn.Module):
+    pattern = re.compile(r"\.attn")
+
+    def __init__(self, num_examples: int = 4):
+        super().__init__()
+        self.num_examples = num_examples
+
+    def forward(self, state: Dict[str, torch.Tensor]) -> Dict[str, Figure]:
+        figures = {}
+        for k, v in state.items():
+            if self.pattern.search(k) and v is not None:
+                attn = v.detach()
+                f = attn_grid(
+                    attn, num_examples=self.num_examples, title=f"{k} attn maps"
+                )
+                figures[k] = f
+        return figures
+
+    def extra_repr(self) -> str:
+        return f"num_examples={self.num_examples}"
 
 
 def attn_grid(
@@ -105,10 +142,7 @@ def attn_grid(
 
 @register_figure("image_grid")
 class ImageGrid(nn.Module):
-    def __init__(
-        self,
-        num_examples: int = 32,
-    ):
+    def __init__(self, num_examples: int = 32):
         super().__init__()
         self.num_examples = num_examples
 
@@ -117,6 +151,9 @@ class ImageGrid(nn.Module):
         if images is None:
             return {}
         return {"image": image_grid(images, num_examples=self.num_examples)}
+
+    def extra_repr(self) -> str:
+        return f"num_examples={self.num_examples}"
 
 
 def image_grid(
