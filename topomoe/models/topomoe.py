@@ -597,6 +597,24 @@ def _create_model(
 
 
 @register_model
+def topomoe_tiny_1s_patch16_128(**kwargs):
+    params = {
+        "img_size": 128,
+        "patch_size": 16,
+        "in_chans": 3,
+        "depths": (6,),
+        "widths": 8,
+        "embed_dim": 384,
+    }
+    defaults = {
+        "num_experts": (1,),
+        "num_heads": 6,
+    }
+    model = _create_model(TopoMoETransformer, params, defaults, **kwargs)
+    return model
+
+
+@register_model
 def topomoe_tiny_2s_patch16_128(**kwargs):
     params = {
         "img_size": 128,
@@ -626,23 +644,6 @@ def topomoe_tiny_3s_patch16_128(**kwargs):
     }
     defaults = {
         "num_experts": (1, 4, 16),
-        "num_heads": 6,
-    }
-    model = _create_model(TopoMoETransformer, params, defaults, **kwargs)
-    return model
-
-
-@register_model
-def vision_transformer_tiny_patch16_128(**kwargs):
-    params = {
-        "img_size": 128,
-        "patch_size": 16,
-        "in_chans": 3,
-        "depths": (6,),
-        "embed_dim": 384,
-    }
-    defaults = {
-        "num_experts": (1,),
         "num_heads": 6,
     }
     model = _create_model(TopoMoETransformer, params, defaults, **kwargs)
