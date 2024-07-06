@@ -548,7 +548,8 @@ class TopoMoETransformer(nn.Module):
             state.update({f"stages.{ii}.{k}": v for k, v in stage_state.items()})
 
         # reduce individual layer wiring costs
-        losses = {"wiring_cost": sum(losses.values()) / len(losses)}
+        if losses:
+            losses = {"wiring_cost": sum(losses.values()) / len(losses)}
 
         return x, losses, state
 
@@ -625,6 +626,23 @@ def topomoe_tiny_3s_patch16_128(**kwargs):
     }
     defaults = {
         "num_experts": (1, 4, 16),
+        "num_heads": 6,
+    }
+    model = _create_model(TopoMoETransformer, params, defaults, **kwargs)
+    return model
+
+
+@register_model
+def vision_transformer_tiny_patch16_128(**kwargs):
+    params = {
+        "img_size": 128,
+        "patch_size": 16,
+        "in_chans": 3,
+        "depths": (6,),
+        "embed_dim": 384,
+    }
+    defaults = {
+        "num_experts": (1,),
         "num_heads": 6,
     }
     model = _create_model(TopoMoETransformer, params, defaults, **kwargs)
