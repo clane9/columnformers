@@ -38,7 +38,7 @@ plt.switch_backend("Agg")
 
 @dataclass
 class Args:
-    name: str = HfArg(help="experiment name")
+    name: Optional[str] = HfArg(default=None, help="experiment name")
     project: str = HfArg(default="columnformers", help="project name")
     desc: Optional[str] = HfArg(default=None, help="description to attach to run")
     out_dir: str = HfArg(default="results", help="path to root output directory")
