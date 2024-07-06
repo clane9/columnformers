@@ -30,11 +30,11 @@ class FeatureCorrMaps(nn.Module):
         figures = {}
         for k, v in state.items():
             if self.pattern.search(k) and v is not None:
-                # B, N, C
+                # B, N, C -> B, N, N
                 feat = F.normalize(v.detach(), dim=-1)
                 feat_corr = feat @ feat.transpose(-2, -1)
-                feat_corr = feat_corr.unsqueeze(1)  # add dummy head dim
-                f = attn_grid(
+                feat_corr = feat_corr
+                f = plot_maps(
                     feat_corr,
                     num_examples=self.num_examples,
                     title=f"{k} feat corr maps",
@@ -54,10 +54,26 @@ class PoolMaps(nn.Module):
         figures = {}
         for k, v in state.items():
             if self.pattern.search(k) and v is not None:
-                # N, M
-                pool = v.detach()
-                pool = pool.view((1, 1, *pool.size()))  # add dummy batch head dim
-                f = attn_grid(pool, num_examples=1, title=f"{k} pool maps")
+                # N, M -> B, N, M
+                pool = v.detach().unsqueeze(0)
+                f = plot_maps(pool, num_examples=1, title=f"{k} pool maps")
+                figures[k] = f
+        return figures
+
+
+@register_figure("expert_maps")
+class ExpertMaps(nn.Module):
+    pattern = re.compile(r"\.maps")
+
+    def forward(self, state: Dict[str, torch.Tensor]) -> Dict[str, Figure]:
+        figures = {}
+        for k, v in state.items():
+            if self.pattern.search(k) and v is not None:
+                # N, E -> B, N, E
+                maps = v.detach().unsqueeze(0)
+                f = plot_maps(
+                    maps, num_examples=1, as_grid=False, title=f"{k} expert maps"
+                )
                 figures[k] = f
         return figures
 
@@ -66,63 +82,66 @@ class PoolMaps(nn.Module):
 class AttentionMaps(nn.Module):
     pattern = re.compile(r"\.attn")
 
-    def __init__(self, num_examples: int = 4):
+    def __init__(self, head: int = 0, num_examples: int = 4):
         super().__init__()
+        self.head = head
         self.num_examples = num_examples
 
     def forward(self, state: Dict[str, torch.Tensor]) -> Dict[str, Figure]:
         figures = {}
         for k, v in state.items():
             if self.pattern.search(k) and v is not None:
-                attn = v.detach()
-                f = attn_grid(
+                # B, nh, N, M -> B, N, M
+                attn = v.detach()[:, self.head]
+                f = plot_maps(
                     attn, num_examples=self.num_examples, title=f"{k} attn maps"
                 )
                 figures[k] = f
         return figures
 
     def extra_repr(self) -> str:
-        return f"num_examples={self.num_examples}"
+        return f"head={self.head}, num_examples={self.num_examples}"
 
 
-def attn_grid(
-    attn: torch.Tensor,
+@torch.no_grad()
+def plot_maps(
+    maps: torch.Tensor,
     num_examples: int = 4,
-    head: Optional[int] = 0,
-    as_maps: bool = True,
+    as_grid: bool = True,
     pad: int = 1,
-    plotw: float = 3.0,
     ploth: float = 3.0,
     title: Optional[str] = None,
 ):
-    num_examples = min(num_examples, len(attn))
-    # B, nh, N, M
-    assert attn.ndim == 4
+    num_examples = min(num_examples, len(maps))
+    # B, N, M
+    assert maps.ndim == 3
 
-    attn = attn.detach()[:num_examples]
-    attn = attn.mean(dim=1) if head is None else attn[:, head]
+    maps = maps[:num_examples]
 
-    N, M = attn.shape[-2:]
+    N, M = maps.shape[-2:]
     HN, HM = math.isqrt(N), math.isqrt(M)
-    assert N == HN * HN and M == HM * HM, "Expected square sequence lengths"
+    assert N == HN * HN and (
+        not as_grid or M == HM * HM
+    ), "Expected square sequence lengths"
 
     # rearrange to form grid of maps with padding
-    if as_maps:
-        attn = rearrange(
-            attn,
+    if as_grid:
+        maps = rearrange(
+            maps,
             "b (h1 w1) (h2 w2) -> b h1 w1 h2 w2",
             h1=HN,
             w1=HN,
             h2=HM,
             w2=HM,
         )
-        attn = F.pad(attn, 4 * (pad,), value=float("nan"))
-        attn = rearrange(attn, "b h1 w1 h2 w2 -> b (h1 h2) (w1 w2)")
-        ploth = ploth * (HN * HM) / 64
-        plotw = plotw * (HN * HM) / 64
+        maps = F.pad(maps, 4 * (pad,), value=float("nan"))
+        maps = rearrange(maps, "b h1 w1 h2 w2 -> b (h1 h2) (w1 w2)")
+        plotw = ploth
     else:
-        ploth = ploth * (HN * HN) / 64
-        plotw = plotw * (HM * HM) / 64
+        maps = rearrange(maps, "b (h1 w1) m -> b m h1 w1", h1=HN, w1=HN)
+        maps = F.pad(maps, 2 * (pad,), value=float("nan"))
+        maps = rearrange(maps, "b m h1 w1 -> b h1 (m w1)")
+        plotw = M * ploth
 
     nr = 1
     nc = num_examples
@@ -132,7 +151,7 @@ def attn_grid(
 
     for jj in range(nc):
         plt.sca(axs[0, jj])
-        imshow(attn[jj])
+        imshow(maps[jj])
 
     if title is not None:
         plt.suptitle(title, fontsize="medium")
