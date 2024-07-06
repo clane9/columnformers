@@ -498,17 +498,3 @@ def quadformer_tiny_3s_patch16_128(**kwargs):
     defaults = {"num_heads": 6}
     model = _create_model(Quadformer, params, defaults, **kwargs)
     return model
-
-
-@register_model
-def vision_transformer_tiny_patch16_128(**kwargs):
-    params = {
-        "img_size": 128,
-        "patch_size": 16,
-        "in_chans": 3,
-        "depths": (6,),
-        "embed_dim": 384,
-    }
-    defaults = {"num_heads": 6}
-    model = _create_model(Quadformer, params, defaults, **kwargs)
-    return model
