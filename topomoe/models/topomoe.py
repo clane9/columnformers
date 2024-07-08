@@ -363,15 +363,14 @@ class Stage(nn.Module):
             # Use pooling weights as new position embedding. This position embedding
             # goes into the expert assignment maps, as well as subsequent stages.
             # Doing it this way should hopefully help connect the maps together better.
-            self.pos_embed = pos_embed = self.pool.weight
+            self.pos_embed = self.pool.weight
         else:
             self.register_module("pool", None)
-            self.register_parameter("pos_embed", None)
-            pos_embed = in_pos_embed
+            self.pos_embed = in_pos_embed
 
         if num_experts > 1:
             # Topographic mapping of experts to tokens. Shared across all blocks.
-            self.maps = TopoMaps(num_experts, pos_embed)
+            self.maps = TopoMaps(num_experts, self.pos_embed)
         else:
             self.register_module("maps", None)
 
@@ -404,11 +403,10 @@ class Stage(nn.Module):
             # Should the position embedding be added to pooled? What would that do?
             # It might not be necessary, but it could help disambiguate tokens, as well
             # as train the position embeddings to track data statistics.
-            pos_embed = self.pos_embed.clone()
-            pooled = pooled + pos_embed
+            pooled = pooled + self.pos_embed
             x, context = pooled, x
         else:
-            pool = pooled = context = pos_embed = None
+            pool = pooled = context = None
 
         state = {}
         for ii, block in enumerate(self.blocks):
@@ -432,7 +430,7 @@ class Stage(nn.Module):
                 losses[f"blocks.{ii}.attn.wiring_cost"] = self.wiring_cost(attn)
 
         # add position embedding, pooling, and expert maps to state
-        state["pos_embed"] = pos_embed
+        state["pos_embed"] = self.pos_embed
         state["pool"] = pool
         state["maps"] = self.maps() if self.maps else None
         return x, losses, state

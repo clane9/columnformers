@@ -18,8 +18,9 @@ plt.rcParams["font.size"] = 10
 plt.style.use("ggplot")
 
 
-@register_figure("feat_corr_maps")
+@register_figure
 class FeatureCorrMaps(nn.Module):
+    name = "feat_corr_maps"
     pattern = re.compile(r"\.features")
 
     def __init__(self, num_examples: int = 4):
@@ -39,15 +40,16 @@ class FeatureCorrMaps(nn.Module):
                     num_examples=self.num_examples,
                     title=f"{k} feat corr maps",
                 )
-                figures[k] = f
+                figures[f"{self.name}-{k}"] = f
         return figures
 
     def extra_repr(self) -> str:
         return f"num_examples={self.num_examples}"
 
 
-@register_figure("pool_maps")
+@register_figure
 class PoolMaps(nn.Module):
+    name = "pool_maps"
     pattern = re.compile(r"\.pool")
 
     def forward(self, state: Dict[str, torch.Tensor]) -> Dict[str, Figure]:
@@ -57,12 +59,13 @@ class PoolMaps(nn.Module):
                 # N, M -> B, N, M
                 pool = v.detach().unsqueeze(0)
                 f = plot_maps(pool, num_examples=1, title=f"{k} pool maps")
-                figures[k] = f
+                figures[f"{self.name}-{k}"] = f
         return figures
 
 
-@register_figure("expert_maps")
+@register_figure
 class ExpertMaps(nn.Module):
+    name = "expert_maps"
     pattern = re.compile(r"\.maps")
 
     def forward(self, state: Dict[str, torch.Tensor]) -> Dict[str, Figure]:
@@ -74,12 +77,13 @@ class ExpertMaps(nn.Module):
                 f = plot_maps(
                     maps, num_examples=1, as_grid=False, title=f"{k} expert maps"
                 )
-                figures[k] = f
+                figures[f"{self.name}-{k}"] = f
         return figures
 
 
-@register_figure("attn_maps")
+@register_figure
 class AttentionMaps(nn.Module):
+    name = "attn_maps"
     pattern = re.compile(r"\.attn")
 
     def __init__(self, head: int = 0, num_examples: int = 4):
@@ -96,7 +100,7 @@ class AttentionMaps(nn.Module):
                 f = plot_maps(
                     attn, num_examples=self.num_examples, title=f"{k} attn maps"
                 )
-                figures[k] = f
+                figures[f"{self.name}-{k}"] = f
         return figures
 
     def extra_repr(self) -> str:
@@ -159,8 +163,10 @@ def plot_maps(
     return f
 
 
-@register_figure("image_grid")
+@register_figure
 class ImageGrid(nn.Module):
+    name = "image_grid"
+
     def __init__(self, num_examples: int = 32):
         super().__init__()
         self.num_examples = num_examples
@@ -169,7 +175,7 @@ class ImageGrid(nn.Module):
         images = state.get("image")
         if images is None:
             return {}
-        return {"image": image_grid(images, num_examples=self.num_examples)}
+        return {self.name: image_grid(images, num_examples=self.num_examples)}
 
     def extra_repr(self) -> str:
         return f"num_examples={self.num_examples}"
