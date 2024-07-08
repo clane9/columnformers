@@ -29,7 +29,7 @@ from torch.utils.data import DataLoader
 from transformers.hf_argparser import HfArg, HfArgumentParser
 
 from topomoe import utils as ut
-from topomoe.inspection import FigureBuilder, create_figures
+from topomoe.inspection import Figure, Metric, create_figures, create_metrics
 from topomoe.models import create_model, list_models
 
 np.set_printoptions(precision=3)
@@ -134,6 +134,7 @@ class Args:
     clip_grad: Optional[float] = HfArg(default=1.0, help="gradient norm clipping")
     # Figures and metrics
     figures_cfg: Optional[str] = HfArg(default=None, help="path to yaml figures config")
+    metrics_cfg: Optional[str] = HfArg(default=None, help="path to yaml metrics config")
     save_figures: bool = HfArg(default=True, help="save figures")
     # Logistics
     checkpoint: Optional[str] = HfArg(
@@ -353,6 +354,14 @@ def main(args: Args):
     figure_builders = create_figures(figures_cfg)
     logging.info("Figures: %s", figure_builders)
 
+    if args.metrics_cfg is not None:
+        with open(args.metrics_cfg) as f:
+            metrics_cfg = yaml.safe_load(f)
+    else:
+        metrics_cfg = None
+    metric_builders = create_metrics(metrics_cfg)
+    logging.info("Metrics: %s", metric_builders)
+
     # Load checkpoint
     if args.checkpoint:
         logging.info("Loading checkpoint: %s", args.checkpoint)
@@ -401,6 +410,7 @@ def main(args: Args):
             autocast=autocast,
             scaler=scaler,
             figure_builders=figure_builders,
+            metric_builders=metric_builders,
             out_dir=out_dir,
         )
 
@@ -413,6 +423,7 @@ def main(args: Args):
             val_loader=loader_eval,
             clust=clust,
             figure_builders=figure_builders,
+            metric_builders=metric_builders,
             out_dir=out_dir,
         )
         is_best = loss < best_loss
@@ -464,7 +475,8 @@ def train_one_epoch(
     clust: ut.ClusterEnv,
     autocast: Callable,
     scaler: Optional[GradScaler],
-    figure_builders: Dict[str, FigureBuilder],
+    figure_builders: Dict[str, Figure],
+    metric_builders: Dict[str, Metric],
     out_dir: Path,
 ):
     model.train()
@@ -507,10 +519,8 @@ def train_one_epoch(
             losses["class_loss"] = loss_fn(output, target)
         loss = sum(losses.values())
 
-        state = {"image": input, "target": target, **state}
         loss_item = to_item(loss, clust=clust)
-        losses_items = {k: to_item(v, clust=clust) for k, v in losses.items()}
-        metrics = losses_items.copy()
+        state = {"image": input, "target": target, "output": output, **state}
 
         if accum_steps > 1:
             loss = loss / accum_steps
@@ -545,7 +555,13 @@ def train_one_epoch(
             or is_last_batch
             or args.debug
         ):
-            metrics = losses_items.copy()
+            losses_items = {k: to_item(v, clust=clust) for k, v in losses.items()}
+            metrics = {
+                k: v.item()
+                for func in metric_builders.values()
+                for k, v in func(state).items()
+            }
+            metrics = {**losses_items, **metrics}
 
             tput = (clust.world_size * args.batch_size) / step_time_m.avg
             if clust.use_cuda:
@@ -593,18 +609,16 @@ def train_one_epoch(
         for name, func in figure_builders.items():
             figs = func(state)
             for key, fig in figs.items():
-                path = (
-                    out_dir / "figures" / name / f"{name}-{key}-{epoch:04d}-train.png"
-                )
-                paths[f"{name}-{key}"] = path
+                path = out_dir / "figures" / name / f"{key}-{epoch:04d}-train.png"
+                paths[key] = path
 
                 path.parent.mkdir(parents=True, exist_ok=True)
                 fig.savefig(path, bbox_inches="tight")
                 plt.close(fig)
 
         if args.wandb:
-            images = {name: wandb.Image(str(path)) for name, path in paths.items()}
-            wandb.log({f"figs.train.{k}": v for k, v in images.items()}, step=step)
+            images = {f"figs.train.{k}": wandb.Image(str(p)) for k, p in paths.items()}
+            wandb.log(images, step=step)
 
 
 @torch.no_grad()
@@ -617,7 +631,8 @@ def validate(
     loss_fn: torch.nn.Module,
     val_loader: DataLoader,
     clust: ut.ClusterEnv,
-    figure_builders: Dict[str, FigureBuilder],
+    figure_builders: Dict[str, Figure],
+    metric_builders: Dict[str, Metric],
     out_dir: Path,
 ) -> Tuple[float, Dict[str, float]]:
     model.eval()
@@ -648,10 +663,15 @@ def validate(
         losses["class_loss"] = loss_fn(output, target)
         loss = sum(losses.values())
 
-        state = {"image": input, "target": target, **state}
         loss_item = to_item(loss, clust=clust)
         losses_items = {k: to_item(v, clust=clust) for k, v in losses.items()}
-        metrics = losses_items.copy()
+        state = {"image": input, "target": target, "output": output, **state}
+        metrics = {
+            k: v.item()
+            for func in metric_builders.values()
+            for k, v in func(state).items()
+        }
+        metrics = {**losses_items, **metrics}
 
         # end of iteration timing
         if clust.use_cuda:
@@ -712,15 +732,15 @@ def validate(
         for name, func in figure_builders.items():
             figs = func(state)
             for key, fig in figs.items():
-                path = out_dir / "figures" / name / f"{name}-{key}-{epoch:04d}-val.png"
-                paths[f"{name}-{key}"] = path
+                path = out_dir / "figures" / name / f"{key}-{epoch:04d}-val.png"
+                paths[key] = path
 
                 fig.savefig(path, bbox_inches="tight")
                 plt.close(fig)
 
         if args.wandb:
-            images = {name: wandb.Image(str(path)) for name, path in paths.items()}
-            wandb.log({f"figs.val.{k}": v for k, v in images.items()}, step=step)
+            images = {f"figs.val.{k}": wandb.Image(str(p)) for k, p in paths.items()}
+            wandb.log(images, step=step)
 
     metrics = {k: v.avg for k, v in metric_ms.items()}
     metrics = {"loss": loss_m.avg, **metrics}
