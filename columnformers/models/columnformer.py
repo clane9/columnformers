@@ -448,8 +448,8 @@ class Block(nn.Module):
             )
 
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        pooled, attn_state = self.attn(self.norm1(x))
-        x = x + pooled if self.skip_attn else pooled
+        attend, attn_state = self.attn(self.norm1(x))
+        x = x + attend if self.skip_attn else attend
         embed, mlp_state = self.mlp(self.norm2(x))
         x = x + embed
 
