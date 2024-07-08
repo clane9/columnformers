@@ -303,18 +303,22 @@ class Block(nn.Module):
         )
 
     def forward(
-        self, x: torch.Tensor, pooled: Optional[torch.Tensor] = None
+        self, x: torch.Tensor, context: Optional[torch.Tensor] = None
     ) -> Tuple[torch.Tensor, State]:
-        x = self.norm1(x)
-        pooled = self.norm1(pooled) if pooled is not None else x
+        # x: pooled input
+        # context: full resolution input
 
         # attention with queries from pooled input and keys/values from full input
         # this way attention acts like adaptive dynamic pooling
-        x, attn_state = self.attn(pooled, x)
+        # should we have separate norm for the context?
+        attend, attn_state = self.attn(
+            self.norm1(x),
+            self.norm1(context) if context is not None else None,
+        )
         # residual on top of pooled input
         # the query/residual is the main path; all other information is pulled in
         # selectively via attention
-        x = pooled + x
+        x = x + attend
 
         # standard mlp, but independent weights per block
         x = x + self.mlp(self.norm2(x))
@@ -359,14 +363,15 @@ class Stage(nn.Module):
             # Use pooling weights as new position embedding. This position embedding
             # goes into the expert assignment maps, as well as subsequent stages.
             # Doing it this way should hopefully help connect the maps together better.
-            self.pos_embed = self.pool.weight
+            self.pos_embed = pos_embed = self.pool.weight
         else:
             self.register_module("pool", None)
-            self.pos_embed = in_pos_embed
+            self.register_parameter("pos_embed", None)
+            pos_embed = in_pos_embed
 
         if num_experts > 1:
             # Topographic mapping of experts to tokens. Shared across all blocks.
-            self.maps = TopoMaps(num_experts, self.pos_embed)
+            self.maps = TopoMaps(num_experts, pos_embed)
         else:
             self.register_module("maps", None)
 
@@ -399,14 +404,17 @@ class Stage(nn.Module):
             # Should the position embedding be added to pooled? What would that do?
             # It might not be necessary, but it could help disambiguate tokens, as well
             # as train the position embeddings to track data statistics.
-            pooled = pooled + self.pos_embed
+            pos_embed = self.pos_embed.clone()
+            pooled = pooled + pos_embed
+            x, context = pooled, x
         else:
-            pool = pooled = None
+            pool = pooled = context = pos_embed = None
 
         state = {}
         for ii, block in enumerate(self.blocks):
-            x, block_state = block(x, pooled=pooled)
+            x, block_state = block(x, context)
             state.update({f"blocks.{ii}.{k}": v for k, v in block_state.items()})
+            context = None
 
         losses = {}
         if self.in_wiring_cost is not None:
@@ -424,7 +432,7 @@ class Stage(nn.Module):
                 losses[f"blocks.{ii}.attn.wiring_cost"] = self.wiring_cost(attn)
 
         # add position embedding, pooling, and expert maps to state
-        state["pos_embed"] = self.pos_embed.clone()
+        state["pos_embed"] = pos_embed
         state["pool"] = pool
         state["maps"] = self.maps() if self.maps else None
         return x, losses, state

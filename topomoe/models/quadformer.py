@@ -277,20 +277,23 @@ class Block(nn.Module):
         )
 
     def forward(
-        self, x: torch.Tensor, pooled: Optional[torch.Tensor] = None
+        self, x: torch.Tensor, context: Optional[torch.Tensor] = None
     ) -> Tuple[torch.Tensor, State]:
-        x = self.norm1(x)
-        pooled = self.norm1(pooled) if pooled is not None else x
+        # x: pooled input
+        # context: full resolution input
 
         # attention with queries from pooled input and keys/values from full input
         # independent weights per block
         # Nb, the pooled input to each block is identical, but the independent weights
         # should break the symmetry
-        x, attn_state = self.attn(pooled, x)
+        attend, attn_state = self.attn(
+            self.norm1(x),
+            self.norm1(context) if context is not None else None,
+        )
         # residual on top of pooled input
         # the query/residual is the main path; all other information is pulled in
         # selectively via attention
-        x = pooled + x
+        x = x + attend
 
         # standard mlp, but independent weights per block
         x = x + self.mlp(self.norm2(x))
@@ -315,7 +318,10 @@ class Stage(nn.Module):
     ):
         super().__init__()
         block = in_block * 2 if pool else in_block
-        self.pool = QuadPool(in_block) if pool else nn.Identity()
+        if pool:
+            self.pool = QuadPool(in_block)
+        else:
+            self.register_module("pool", None)
         self.blocks = nn.ModuleList(
             Block(
                 block=block,
@@ -334,12 +340,13 @@ class Stage(nn.Module):
         # pool inputs and branch
         # input -> 2x2 pooling -> 2x2 tiling
         # independently in each block, resulting in a quad tree like branching structure
-        pooled = self.pool(x)
+        context = self.pool(x) if self.pool else None
 
         state = {}
         for ii, block in enumerate(self.blocks):
-            x, block_state = block(x, pooled=pooled)
+            x, block_state = block(x, context)
             state.update({f"blocks.{ii}.{k}": v for k, v in block_state.items()})
+            context = None
         return x, state
 
 
