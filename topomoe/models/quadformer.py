@@ -340,7 +340,10 @@ class Stage(nn.Module):
         # pool inputs and branch
         # input -> 2x2 pooling -> 2x2 tiling
         # independently in each block, resulting in a quad tree like branching structure
-        context = self.pool(x) if self.pool else None
+        if self.pool:
+            x, context = self.pool(x), x
+        else:
+            context = None
 
         state = {}
         for ii, block in enumerate(self.blocks):
