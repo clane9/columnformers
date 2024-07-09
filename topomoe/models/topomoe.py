@@ -490,7 +490,7 @@ class TopoMoETransformer(nn.Module):
             zip(depths, num_experts, widths, mlp_ratio)
         ):
             if mlp_conserve:
-                ratio = ratio / num_experts
+                ratio = ratio / experts
 
             # do pooling for stages after first or if initial sequence length doesn't
             # match the patch grid.
