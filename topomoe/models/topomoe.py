@@ -403,7 +403,7 @@ class Stage(nn.Module):
             # Should the position embedding be added to pooled? What would that do?
             # It might not be necessary, but it could help disambiguate tokens, as well
             # as train the position embeddings to track data statistics.
-            # pooled = pooled + self.pos_embed
+            pooled = pooled + self.pos_embed
             x, context = pooled, x
         else:
             pool = pooled = context = None
