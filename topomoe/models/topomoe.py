@@ -342,6 +342,7 @@ class Stage(nn.Module):
         attn_drop: float = 0.0,
         proj_drop: float = 0.0,
         act_layer: Layer = nn.GELU,
+        add_pos: bool = False,
         in_wiring_cost: Optional[nn.Module] = None,
         wiring_cost: Optional[nn.Module] = None,
     ):
@@ -351,6 +352,7 @@ class Stage(nn.Module):
             seq_len is None or seq_len == in_seq_len or pool
         ), "changing seq_len requires pool=true"
         self.seq_len = seq_len or in_seq_len
+        self.add_pos = add_pos
 
         if pool:
             # Pool from input tokens to current token space using a topographic map.
@@ -403,7 +405,8 @@ class Stage(nn.Module):
             # Should the position embedding be added to pooled? What would that do?
             # It might not be necessary, but it could help disambiguate tokens, as well
             # as train the position embeddings to track data statistics.
-            pooled = pooled + self.pos_embed
+            if self.add_pos:
+                pooled = pooled + self.pos_embed
             x, context = pooled, x
         else:
             pool = pooled = context = None
@@ -435,6 +438,9 @@ class Stage(nn.Module):
         state["maps"] = self.maps() if self.maps else None
         return x, losses, state
 
+    def extra_repr(self) -> str:
+        return f"add_pos={self.add_pos}"
+
 
 class TopoMoETransformer(nn.Module):
     def __init__(
@@ -456,6 +462,7 @@ class TopoMoETransformer(nn.Module):
         global_pool: Literal["", "avg"] = "avg",
         num_classes: int = 100,
         drop_rate: float = 0.0,
+        add_pos: bool = False,
         wiring_lambd: float = 0.0,
         wiring_sigma: float = 2.0,
         **kwargs,
@@ -519,6 +526,7 @@ class TopoMoETransformer(nn.Module):
                 attn_drop=attn_drop_rate,
                 proj_drop=proj_drop_rate,
                 act_layer=act_layer,
+                add_pos=add_pos,
                 in_wiring_cost=in_wiring_cost,
                 wiring_cost=wiring_cost,
             )

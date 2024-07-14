@@ -73,6 +73,9 @@ class Args:
     attn_drop_rate: float = HfArg(
         aliases=["--adr"], default=0.0, help="attention dropout rate"
     )
+    add_pos: bool = HfArg(
+        default=False, help="add stage position embedding to pooled input"
+    )
     wiring_lambd: float = HfArg(
         aliases=["--wlambd"], default=0.0, help="wiring length penalty"
     )
@@ -309,6 +312,7 @@ def main(args: Args):
         drop_rate=args.drop_rate,
         proj_drop_rate=args.proj_drop_rate,
         attn_drop_rate=args.attn_drop_rate,
+        add_pos=args.add_pos,
         wiring_lambd=args.wiring_lambd,
         wiring_sigma=args.wiring_sigma,
     )
