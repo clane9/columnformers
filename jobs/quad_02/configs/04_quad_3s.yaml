@@ -1,0 +1,14 @@
+model: quadformer_tiny_3s_patch16_128
+mlp_conserve: true
+desc: "Three stage quadformer, conserved params"
+
+dataset: hfds/clane9/imagenet-100
+scale: [0.33334, 1.0]
+hflip: 0.5
+color_jitter: 0.4
+in_memory: true
+epochs: 50
+
+amp: true
+wandb: true
+debug: false

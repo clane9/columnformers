@@ -1,0 +1,18 @@
+model: topomoe_tiny_3s_patch16_128
+mlp_conserve: true
+wiring_lambd: 0.1
+desc: >
+  Three stage topomoe, conserved params.
+  Don't add pos embedding to pooled input.
+  With wiring cost 0.1.
+
+dataset: hfds/clane9/imagenet-100
+scale: [0.33334, 1.0]
+hflip: 0.5
+color_jitter: 0.4
+in_memory: true
+epochs: 50
+
+amp: true
+wandb: true
+debug: false
