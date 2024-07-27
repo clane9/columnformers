@@ -4,15 +4,15 @@ import pytest
 import torch
 from fvcore.nn import FlopCountAnalysis
 
-from topomoe.models.quadformer import Quadformer
+from topomoe.models.quadmoe import QuadMoETransformer
 
 CONFIGS = {
-    "quadformer_2stage": {
+    "quadmoe_2stage": {
         "depths": (3, 3),
         "embed_dim": 384,
         "num_heads": 6,
     },
-    "quadformer_3stage": {
+    "quadmoe_3stage": {
         "depths": (2, 2, 2),
         "embed_dim": 384,
         "num_heads": 6,
@@ -23,13 +23,13 @@ CONFIGS = {
 @pytest.mark.parametrize(
     "config",
     [
-        "quadformer_2stage",
-        "quadformer_3stage",
+        "quadmoe_2stage",
+        "quadmoe_3stage",
     ],
 )
 def test_model(config: str):
     torch.manual_seed(42)
-    model = Quadformer(**CONFIGS[config])
+    model = QuadMoETransformer(**CONFIGS[config])
     logging.info("Model:\n%s", model)
 
     x = torch.randn(1, 3, 128, 128)

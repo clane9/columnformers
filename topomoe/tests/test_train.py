@@ -6,7 +6,7 @@ configs = {
     "transformer": train.Args(
         name="debug_train_transformer",
         out_dir="topomoe/test_results",
-        model="quadformer_tiny_1s_patch16_128",
+        model="quadmoe_tiny_1s_patch16_128",
         dataset="hfds/clane9/imagenet-100",
         workers=0,
         batch_size=32,
@@ -23,10 +23,10 @@ configs = {
         overwrite=True,
         debug=True,
     ),
-    "quadformer": train.Args(
-        name="debug_train_quadformer",
+    "quadmoe": train.Args(
+        name="debug_train_quadmoe",
         out_dir="topomoe/test_results",
-        model="quadformer_tiny_2s_patch16_128",
+        model="quadmoe_tiny_2s_patch16_128",
         dataset="hfds/clane9/imagenet-100",
         workers=0,
         batch_size=32,
@@ -47,7 +47,7 @@ configs = {
     "aug": train.Args(
         name="debug_train_aug",
         out_dir="topomoe/test_results",
-        model="quadformer_tiny_1s_patch16_128",
+        model="quadmoe_tiny_1s_patch16_128",
         dataset="hfds/clane9/imagenet-100",
         scale=[0.1, 0.3],
         ratio=[1 / 4, 4 / 1],
@@ -66,7 +66,7 @@ configs = {
     [
         "transformer",
         "transformer_v2",
-        "quadformer",
+        "quadmoe",
         "topomoe",
         "aug",
     ],

@@ -1,7 +1,7 @@
 """
-Quad-tree transformer (Quadformer)
+Quad-tree MoE transformer (QuadMoE)
 
-The Quadformer is a simplified baseline for the TopoMoE transformer. Like the
+The QuadMoE is a simplified baseline for the TopoMoE transformer. Like the
 transformer, it consists of a series of stages consisting of pooling and topographic MoE
 blocks. But rather than learn the pooling and expert assignment maps, we hand-design
 them. The representation map at each stage is the same size. To pool from one stage to
@@ -353,7 +353,7 @@ class Stage(nn.Module):
         return x, state
 
 
-class Quadformer(nn.Module):
+class QuadMoETransformer(nn.Module):
     def __init__(
         self,
         img_size: int = 128,
@@ -483,7 +483,7 @@ def _create_model(
 
 
 @register_model
-def quadformer_tiny_1s_patch16_128(**kwargs):
+def quadmoe_tiny_1s_patch16_128(**kwargs):
     params = {
         "img_size": 128,
         "patch_size": 16,
@@ -492,12 +492,12 @@ def quadformer_tiny_1s_patch16_128(**kwargs):
         "embed_dim": 384,
     }
     defaults = {"num_heads": 6}
-    model = _create_model(Quadformer, params, defaults, **kwargs)
+    model = _create_model(QuadMoETransformer, params, defaults, **kwargs)
     return model
 
 
 @register_model
-def quadformer_tiny_2s_patch16_128(**kwargs):
+def quadmoe_tiny_2s_patch16_128(**kwargs):
     params = {
         "img_size": 128,
         "patch_size": 16,
@@ -506,12 +506,12 @@ def quadformer_tiny_2s_patch16_128(**kwargs):
         "embed_dim": 384,
     }
     defaults = {"num_heads": 6}
-    model = _create_model(Quadformer, params, defaults, **kwargs)
+    model = _create_model(QuadMoETransformer, params, defaults, **kwargs)
     return model
 
 
 @register_model
-def quadformer_tiny_3s_patch16_128(**kwargs):
+def quadmoe_tiny_3s_patch16_128(**kwargs):
     params = {
         "img_size": 128,
         "patch_size": 16,
@@ -520,5 +520,5 @@ def quadformer_tiny_3s_patch16_128(**kwargs):
         "embed_dim": 384,
     }
     defaults = {"num_heads": 6}
-    model = _create_model(Quadformer, params, defaults, **kwargs)
+    model = _create_model(QuadMoETransformer, params, defaults, **kwargs)
     return model
