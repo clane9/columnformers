@@ -12,7 +12,6 @@ from torch import nn
 
 from .registry import register_figure
 
-plt.switch_backend("Agg")
 plt.rcParams["figure.dpi"] = 150
 plt.rcParams["font.size"] = 10
 plt.style.use("ggplot")
@@ -52,15 +51,26 @@ class PoolMaps(nn.Module):
     name = "pool_maps"
     pattern = re.compile(r"\.pool")
 
+    def __init__(self, num_examples: int = 4):
+        super().__init__()
+        self.num_examples = num_examples
+
     def forward(self, state: Dict[str, torch.Tensor]) -> Dict[str, Figure]:
         figures = {}
         for k, v in state.items():
             if self.pattern.search(k) and v is not None:
+                pool = v.detach()
                 # N, M -> B, N, M
-                pool = v.detach().unsqueeze(0)
-                f = plot_maps(pool, num_examples=1, title=f"{k} pool maps")
+                if pool.ndim == 2:
+                    pool = pool.unsqueeze(0)
+                f = plot_maps(
+                    pool, num_examples=self.num_examples, title=f"{k} pool maps"
+                )
                 figures[f"{self.name}-{k}"] = f
         return figures
+
+    def extra_repr(self) -> str:
+        return f"num_examples={self.num_examples}"
 
 
 @register_figure

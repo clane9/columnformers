@@ -164,7 +164,7 @@ class Block(nn.Module):
             x = x + self.mlp(self.norm2(x))
             dispatch = None
 
-        state = {**attn_state, "features": x, "dispatch": dispatch}
+        state = {**attn_state, "features": x, "pool": dispatch}
         return x, state
 
 
