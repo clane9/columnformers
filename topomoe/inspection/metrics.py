@@ -30,7 +30,7 @@ class AttentionEntropy(nn.Module):
         metrics = {}
         for k, v in state.items():
             if self.pattern.search(k) and v is not None:
-                metrics[f"{self.name}-{k}"] = attention_entropy(v.detach())
+                metrics[f"{k}.{self.name}"] = attention_entropy(v.detach())
         return metrics
 
 
