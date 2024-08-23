@@ -19,8 +19,6 @@ from timm.utils import AverageMeter, random_seed
 from torch import Tensor
 from torch.utils.data import DataLoader
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
 from columnformers import utils as ut
 from columnformers.data import create_dataset, create_loader, list_datasets
 from columnformers.models import create_model, list_models
@@ -224,39 +222,30 @@ def main(args: Args):
 
     logging.info("Creating model %s", args.model)
 
-    # model = create_model(
-    #     args.model,
-    #     attn_mode=args.attn_mode,
-    #     mlp_mode=args.mlp_mode,
-    #     norm_mode=args.norm_mode,
-    #     num_heads=args.num_heads,
-    #     mlp_ratio=parse_csv(args.mlp_ratio, float),
-    #     skip_attn=args.skip_attn,
-    #     attn_bias=args.attn_bias,
-    #     attn_head_bias=args.attn_head_bias,
-    #     qk_head_dim=args.qk_head_dim,
-    #     no_vp=args.no_vp,
-    #     num_experts=parse_csv(args.num_experts),
-    #     pool_stages=parse_csv(args.pool_stages, squeeze=False),
-    #     mlp_conserve=args.mlp_conserve,
-    #     init_local_attn=args.init_local_attn,
-    #     depth_offset=args.depth_offset,
-    #     num_classes=num_classes,
-    #     global_pool=args.global_pool,
-    #     pos_embed=args.pos_embed,
-    #     time_embed=args.time_embed,
-    #     drop_rate=args.drop_rate,
-    #     proj_drop_rate=args.proj_drop_rate,
-    #     attn_drop_rate=args.attn_drop_rate,
-    # )
     model = create_model(
-        "vision_transformer_tiny_patch16_128",
-        depth_offset=2.0,
-        num_classes=100,
-        global_pool="avg",
-        drop_rate=0.0,
-        proj_drop_rate=0.0,
-        attn_drop_rate=0.0,
+        args.model,
+        attn_mode=args.attn_mode,
+        mlp_mode=args.mlp_mode,
+        norm_mode=args.norm_mode,
+        num_heads=args.num_heads,
+        mlp_ratio=parse_csv(args.mlp_ratio, float),
+        skip_attn=args.skip_attn,
+        attn_bias=args.attn_bias,
+        attn_head_bias=args.attn_head_bias,
+        qk_head_dim=args.qk_head_dim,
+        no_vp=args.no_vp,
+        num_experts=parse_csv(args.num_experts),
+        pool_stages=parse_csv(args.pool_stages, squeeze=False),
+        mlp_conserve=args.mlp_conserve,
+        init_local_attn=args.init_local_attn,
+        depth_offset=args.depth_offset,
+        num_classes=num_classes,
+        global_pool=args.global_pool,
+        pos_embed=args.pos_embed,
+        time_embed=args.time_embed,
+        drop_rate=args.drop_rate,
+        proj_drop_rate=args.proj_drop_rate,
+        attn_drop_rate=args.attn_drop_rate,
     )
     model: torch.nn.Module = model.to(device)
     logging.info(
