@@ -51,7 +51,7 @@ class FeatureExtractor:
         if len(args) == len(kwargs) == 0:
             return None, self._features.copy()
 
-        output = self.model(*args, **kwargs)
+        output, _ = self.model(*args, **kwargs)
         return output, self._features.copy()
 
     @staticmethod

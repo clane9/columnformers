@@ -23,7 +23,7 @@ from columnformers import utils as ut
 from columnformers.data import create_dataset, create_loader, list_datasets
 from columnformers.models import create_model, list_models
 from columnformers.models.columnformer import AttnMode, MlpMode, NormMode
-from columnformers.train import _get_enum_values, parse_csv
+from columnformers.train import _get_enum_values, parse_csv, to_device
 
 logging.basicConfig(
     format="[%(levelname)s %(asctime)s]: %(message)s", level=logging.INFO
@@ -39,7 +39,7 @@ LOG_FREQ = 1
 @dataclass
 class Args:
     layers: List[str] = HfArg(help="list of layer names to extract")
-    split: str = HfArg(default="test", help="which data split to extract")
+    split: str = HfArg(default="validation", help="which data split to extract")
     pool_size: Optional[int] = HfArg(default=None, help="adaptive average pool size")
     overwrite: bool = HfArg(default=False, help="overwrite pre-existing results")
 
@@ -134,7 +134,7 @@ class Args:
     color_jitter: Optional[float] = HfArg(
         aliases=["--jitter"], default=None, help="color jitter value"
     )
-    workers: int = HfArg(aliases=["-j"], default=4, help="data loading workers")
+    workers: int = HfArg(aliases=["-j"], default=0, help="data loading workers")
     prefetch: bool = HfArg(default=True, help="use cuda prefetching")
     in_memory: bool = HfArg(
         aliases=["--inmem"], default=True, help="keep dataset in memory"
@@ -197,7 +197,7 @@ def main(args: Args):
     logging.info(f"Loading split {args.split}")
 
     input_size = int(args.model.split("_")[-1])
-    ds = create_dataset(
+    dataset = create_dataset(
         args.dataset,
         input_size=input_size,
         min_scale=args.crop_min_scale,
@@ -205,19 +205,21 @@ def main(args: Args):
         color_jitter=args.color_jitter,
         keep_in_memory=args.in_memory,
     )
-    num_classes = ds["train"].features["label"].num_classes
+    num_classes = dataset["train"].features["label"].num_classes
 
-    loader = create_loader(
-        ds,
-        shuffle=True,
-        batch_size=args.batch_size,
-        drop_last=True,
-        num_workers=args.workers,
-        distributed=clust.ddp,
-        pin_memory=not args.prefetch,
-        use_prefetcher=args.prefetch,
-        device=clust.device,
-    )
+    loaders = {}
+    for split, ds in dataset.items():
+        loaders[split] = create_loader(
+            ds,
+            shuffle=True,
+            batch_size=args.batch_size,
+            drop_last=True,
+            num_workers=args.workers,
+            distributed=clust.ddp,
+            pin_memory=not args.prefetch,
+            use_prefetcher=args.prefetch,
+            device=clust.device,
+        )
     logging.info(f"\n\tnum samples: {len(ds)}\n")
 
     logging.info("Creating model %s", args.model)
@@ -264,7 +266,7 @@ def main(args: Args):
     )
 
     logging.info(f"Extracting to {out_path}")
-    extract_features(args, extractor, loader, out_path, device)
+    extract_features(args, extractor, loaders[args.split], out_path, device)
 
     runtime = time.monotonic() - start_time
     logging.info(f"Done! runtime: {runtime:.2f}s")
@@ -289,13 +291,13 @@ def extract_features(
     last_idx = len(loader) - 1
     with writer as writer:
         for epoch in range(args.epochs):
-            for batch_idx, sample in enumerate(loader):
+            for batch_idx, batch in enumerate(loader):
                 last_batch = batch_idx == last_idx
-                image = sample.image
-                image = image.to(device)
+                batch = to_device(batch, device)
+                images = batch["image"]
 
                 # Each feature shape: (batch_size, ...)
-                _, batch_features = extractor(image)
+                _, batch_features = extractor(images)
 
                 for name, values in batch_features.items():
                     # Reshape features to (N, T, D) and optionally perform adaptive
