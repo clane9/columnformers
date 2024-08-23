@@ -30,10 +30,7 @@ logging.basicConfig(
 )
 torch.backends.cudnn.benchmark = True
 
-# Extract from training-derived splits and the official test.
-EXTRACT_SPLITS = ["train", "val", "testval", "test-official"]
 SEED = 42
-LOG_FREQ = 1
 
 
 @dataclass
@@ -179,8 +176,7 @@ def main(args: Args):
 
     out_dir = args.out_dir / args.model
     out_dir.mkdir(parents=True, exist_ok=True)
-    prefix = args.split
-    out_path = out_dir / f"{prefix}_features.h5"
+    out_path = out_dir / f"{args.split}_features.h5"
     if out_path.exists():
         if not args.overwrite:
             logging.info(f"Output path {out_path} already exists; exiting")
@@ -318,7 +314,7 @@ def extract_features(
 
                 batch_time_m.update(time.time() - end)
                 end = time.time()
-                if last_batch or batch_idx % LOG_FREQ == 0:
+                if last_batch or batch_idx % args.log_interval == 0:
                     logging.info(
                         f"Extract: [{epoch:>2d}/{args.epochs-1}][{batch_idx:>3d}/{last_idx}]  "
                         f"Time: {batch_time_m.val:.3f} ({batch_time_m.avg:.3f})"
