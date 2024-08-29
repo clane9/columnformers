@@ -16,11 +16,11 @@ from timm.data import DEFAULT_CROP_PCT, create_dataset, create_loader
 from timm.utils import AverageMeter, random_seed
 from torch import Tensor
 from torch.utils.data import DataLoader
+from tqdm import tqdm
+from transformers.hf_argparser import HfArg, HfArgumentParser
 
-from algonauts23.features import FeatureExtractor, H5Writer, process_features
-from algonauts23.hf_argparser import HfArg, HfArgumentParser
-from algonauts23.utils import args_to_dict, get_sha
 from topomoe import utils as ut
+from topomoe.inspection.features import FeatureExtractor, H5Writer, process_features
 from topomoe.models import create_model, list_models
 from topomoe.train import get_num_classes, load_dataset_in_memory
 
@@ -129,7 +129,7 @@ class Args:
 
 def main(args: Args):
     start_time = time.monotonic()
-    args_dict = args_to_dict(args)
+    args_dict = ut.args_to_dict(args)
     random_seed(SEED)
 
     clust = ut.ClusterEnv(args.cuda)
@@ -145,7 +145,7 @@ def main(args: Args):
 
     logging.info("Starting feature extraction")
     logging.info("Args:\n%s", yaml.safe_dump(args_dict, sort_keys=False))
-    logging.info(get_sha())
+    logging.info(ut.get_sha())
 
     device = torch.device("cuda" if args.cuda and torch.cuda.is_available() else "cpu")
     logging.info(f"Extracting with a single process on {device}")
@@ -259,7 +259,9 @@ def extract_features(
     last_idx = len(loader) - 1
     with writer as writer:
         for epoch in range(args.epochs):
-            for batch_idx, (input, target) in enumerate(loader):
+            for batch_idx, (input, target) in tqdm(
+                enumerate(loader), total=len(loader)
+            ):
                 last_batch = batch_idx == last_idx
 
                 if not args.prefetch:

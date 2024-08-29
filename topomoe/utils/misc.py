@@ -157,3 +157,15 @@ def filter_kwargs(func: Callable, kwargs: Dict[str, Any]):
             kwargs.pop(k)
             extra_args.append(k)
     return kwargs, extra_args
+
+
+def args_to_dict(args: object):
+    """
+    Cast args fields to primitive types for serialization.
+    """
+    state = {}
+    for k, v in args.__dict__.items():
+        if isinstance(v, Path):
+            v = str(v)
+        state[k] = v
+    return state

@@ -15,12 +15,15 @@ import yaml
 from timm.utils import AverageMeter, random_seed
 from torch import Tensor
 from torch.utils.data import DataLoader
+from transformers.hf_argparser import HfArg, HfArgumentParser
 
-from algonauts23.features import FeatureExtractor, H5Writer, process_features
-from algonauts23.hf_argparser import HfArg, HfArgumentParser
-from algonauts23.utils import args_to_dict, get_sha
 from columnformers import utils as ut
 from columnformers.data import create_dataset, create_loader, list_datasets
+from columnformers.inspection.features import (
+    FeatureExtractor,
+    H5Writer,
+    process_features,
+)
 from columnformers.models import create_model, list_models
 from columnformers.models.columnformer import AttnMode, MlpMode, NormMode
 from columnformers.train import _get_enum_values, parse_csv, to_device
@@ -169,7 +172,7 @@ class Args:
 
 def main(args: Args):
     start_time = time.monotonic()
-    args_dict = args_to_dict(args)
+    args_dict = ut.args_to_dict(args)
     random_seed(SEED)
 
     clust = ut.ClusterEnv(args.cuda)
@@ -185,7 +188,7 @@ def main(args: Args):
 
     logging.info("Starting feature extraction")
     logging.info("Args:\n%s", yaml.safe_dump(args_dict, sort_keys=False))
-    logging.info(get_sha())
+    logging.info(ut.get_sha())
 
     device = torch.device("cuda" if args.cuda and torch.cuda.is_available() else "cpu")
     logging.info(f"Extracting with a single process on {device}")
