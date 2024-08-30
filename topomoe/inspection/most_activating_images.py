@@ -1,4 +1,4 @@
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import h5py
 import matplotlib.pyplot as plt
@@ -7,7 +7,6 @@ import torch
 from PIL import Image
 from sklearn.decomposition import PCA
 from timm.data import create_dataset
-from tqdm import tqdm
 
 
 def create_most_activating_image_grid(
@@ -16,7 +15,8 @@ def create_most_activating_image_grid(
     dataset: str,
     num_img: int = 9,
     img_size: int = 100,
-    desired_variance: float = 0.9,
+    desired_variance: Optional[float] = 0.9,
+    p: Optional[int] = 2,
 ) -> Dict[str, Image.Image]:
     """
     Takes the extracted features as a .h5 file and creates a (3 x num_patches) x (3 x num_patches)
@@ -31,6 +31,7 @@ def create_most_activating_image_grid(
         - num_img: number of top activating images to find for each patch, should be a square number
         - img_size: desired size of the plotted images in pixels
         - desired_variance: the fraction of variance we want to explain when using PCA to calculate activation strength
+        - p: the order of the norm if measuring activation strength using lp norm
     Returns:
         - a dictionary with keys the layer names and calues the compiled
           PIL.Image.Image images
@@ -45,15 +46,12 @@ def create_most_activating_image_grid(
 
     with h5py.File(features_path, "r") as f:
         for layer in layers:
-            activations = torch.tensor(
-                np.array(f[layer])
-            )  # -> num_images x seq_len x embedding_dim
-            activations = pca_activations(
-                activations, desired_variance=desired_variance
-            )  # -> num_images x seq_len
-            activations = torch.topk(
-                activations, num_img, 0
-            ).indices  # -> num_img x seq_len
+            activations = torch.tensor(np.array(f[layer]))
+            # -> num_images x seq_len x embedding_dim
+            activations = lp_activations(activations, p)
+            # -> num_images x seq_len
+            activations = torch.topk(activations, num_img, 0).indices
+            # -> num_img x seq_len
 
             seq_grid_dim = int(num_img**0.5)
             full_grid_dim = int(activations.shape[1] ** 0.5)
@@ -124,9 +122,12 @@ def pca_activations(activations: torch.Tensor, desired_variance: float) -> torch
     Returns:
         - a tensor of shape num_images, seq_len with a measure of the activation strength for each image and patch
     """
+    num_images, seq_len, _ = activations.shape
+
+    flattened_activations = activations.flatten(0, 1).numpy()
     # estimate the number of principal components that explain the desired percentage of variance
     pca_est = PCA()
-    pca_est.fit(activations[:, 0, :].numpy())
+    pca_est.fit(flattened_activations)
 
     explained_variance_ratio = pca_est.explained_variance_ratio_
 
@@ -134,40 +135,36 @@ def pca_activations(activations: torch.Tensor, desired_variance: float) -> torch
 
     k = np.argmax(cumulative_explained_variance >= desired_variance) + 1
 
-    activation_strengths_list = []
-
     # project activations onto these components independently for each patch
     # and get their L2 norms
-    for s in tqdm(range(activations.shape[1])):
-        pca = PCA(n_components=k)
-        projected_activations = pca.fit_transform(activations[:, s, :].numpy())
+    pca = PCA(n_components=k)
+    projected_activations = pca.fit_transform(flattened_activations)
 
-        activation_strengths_list.append(
-            torch.norm(torch.tensor(projected_activations), dim=1)
-        )
+    l2_norm_activations = torch.norm(torch.tensor(projected_activations), dim=1)
 
-    return torch.stack(activation_strengths_list, dim=1)
+    return l2_norm_activations.reshape(num_images, seq_len)
 
 
-def mean_activations(activations: torch.Tensor) -> torch.Tensor:
+def lp_activations(activations: torch.Tensor, p: int) -> torch.Tensor:
     """
-    Calculates the mean of the activation vectors.
+    Calculates the l1 norm of the activation vectors.
 
     Args:
         - activations: tensor of activations of shape num_images, seq_len, embedding_dim
+        - p: the order of the norm
     Returns:
         - a tensor of shape num_images, seq_len with a measure of the activation strength for each image and patch
     """
 
-    return torch.mean(activations, 2)
+    return torch.linalg.vector_norm(activations, ord=p, dim=2)
 
 
 layers = [
     "stages.0.blocks.1.mlp.act",
-    "stages.1.blocks.1.mlp.act",
-    "stages.2.blocks.1.mlp.act",
+    # "stages.1.blocks.1.mlp.act",
+    # "stages.2.blocks.1.mlp.act",
 ]
-features_path = "topomoe_features/topomoe_tiny_3s_patch16_128/validation_features.h5"
+features_path = "topomoe_features/topomoe_tiny_1s_patch16_128/validation_features.h5"
 
 dataset = "hfds/clane9/imagenet-100"
 
@@ -175,6 +172,6 @@ visualisations = create_most_activating_image_grid(layers, features_path, datase
 
 for layer, img in visualisations.items():
     plt.imshow(img)
-    plt.title(layer)
+    plt.title(f"topomoe_tiny_1s_patch16_128_{layer}")
     plt.axis("off")
     plt.show()
