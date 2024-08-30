@@ -22,6 +22,7 @@ from transformers.hf_argparser import HfArg, HfArgumentParser
 from topomoe import utils as ut
 from topomoe.inspection.features import FeatureExtractor, H5Writer, process_features
 from topomoe.models import create_model, list_models
+from topomoe.train import Args as TrainArgs
 from topomoe.train import get_num_classes, load_dataset_in_memory
 
 logging.basicConfig(
@@ -111,8 +112,11 @@ class Args:
     out_dir: Path = HfArg(
         default=Path("topomoe_features"), help="path to root output directory"
     )
-    checkpoint: Optional[str] = HfArg(
+    checkpoint_path: Optional[Path] = HfArg(
         aliases=["--ckpt"], default=None, help="checkpoint to load"
+    )
+    model_args_path: Optional[Path] = HfArg(
+        aliases=["--args"], default=None, help="args to load for trained model"
     )
     strict_load: bool = HfArg(aliases=["--strict"], default=True, help="strict loading")
     cuda: bool = HfArg(default=True, help="use cuda")
@@ -191,36 +195,35 @@ def main(args: Args):
 
     num_classes = get_num_classes(dataset)
 
+    if args.checkpoint_path and args.model_args_path:
+        model_arg_parser = HfArgumentParser(TrainArgs)
+        (model_args,) = model_arg_parser.parse_yaml_file(yaml_file=args.model_args_path)
+    else:
+        model_args = args
+
     model = create_model(
-        args.model,
-        num_heads=args.num_heads,
-        mlp_ratio=args.mlp_ratio,
-        num_experts=args.num_experts,
-        mlp_conserve=args.mlp_conserve,
+        model_args.model,
+        num_heads=model_args.num_heads,
+        mlp_ratio=model_args.mlp_ratio,
+        num_experts=model_args.num_experts,
+        mlp_conserve=model_args.mlp_conserve,
         num_classes=num_classes,
-        drop_rate=args.drop_rate,
-        proj_drop_rate=args.proj_drop_rate,
-        attn_drop_rate=args.attn_drop_rate,
-        add_pos=args.add_pos,
-        wiring_lambd=args.wiring_lambd,
-        wiring_sigma=args.wiring_sigma,
+        drop_rate=model_args.drop_rate,
+        proj_drop_rate=model_args.proj_drop_rate,
+        attn_drop_rate=model_args.attn_drop_rate,
+        add_pos=model_args.add_pos,
+        wiring_lambd=model_args.wiring_lambd,
+        wiring_sigma=model_args.wiring_sigma,
     )
     model: torch.nn.Module = model.to(device)
     logging.info(
         f"param count: {sum([m.numel() for m in model.parameters()])/1e6:.0f}M"
     )
 
-    if args.checkpoint:
-        optimizer = ut.create_optimizer(model)
-        logging.info("Loading checkpoint: %s", args.checkpoint)
-        ut.load_checkpoint(
-            args.checkpoint,
-            model,
-            optimizer,
-            device=clust.device,
-            strict=args.strict_load,
-            load_opt_state=False,
-        )
+    if args.checkpoint_path:
+        logging.info("Loading checkpoint: %s", args.checkpoint_path)
+        ckpt = torch.load(args.checkpoint_path, map_location=device)
+        model.load_state_dict(ckpt["model"])
 
     # Construct feature extractor
     # NOTE: there is also torchvision create_feature_extractor() we may want to
