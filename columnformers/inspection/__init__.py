@@ -1,3 +1,4 @@
+from . import features  # noqa
 from . import figures  # noqa
 from . import metrics  # noqa
 from .registry import (  # noqa
