@@ -19,3 +19,4 @@ from .optim import (  # noqa
     set_requires_grad,
     update_lr_,
 )
+from .saving_funcs import ExperimentSaver, new_init  # noqa
