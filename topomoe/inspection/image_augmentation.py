@@ -8,6 +8,7 @@ class GaussianNoise(nn.Module):
     def __init__(
         self,
         batch_size: int,
+        device: str,
         shuffle_every: bool = False,
         std: float = 1.0,
         max_iter: int = 400,
@@ -16,12 +17,13 @@ class GaussianNoise(nn.Module):
         self.batch_size, self.std_p, self.max_iter = batch_size, std, max_iter
         self.std = None
         self.rem = max_iter - 1
+        self.device = device
         self.shuffle()
         self.shuffle_every = shuffle_every
 
     def shuffle(self):
         self.std = (
-            torch.randn(self.batch_size, 3, 1, 1).cuda()
+            torch.randn(self.batch_size, 3, 1, 1).to(self.device)
             * self.rem
             * self.std_p
             / self.max_iter
@@ -44,6 +46,7 @@ class ColorJitter(nn.Module):
     def __init__(
         self,
         batch_size: int,
+        device: str,
         shuffle_every: bool = False,
         mean: float = 1.0,
         std: float = 1.0,
@@ -51,6 +54,7 @@ class ColorJitter(nn.Module):
         super().__init__()
         self.batch_size, self.mean_p, self.std_p = batch_size, mean, std
         self.mean = self.std = None
+        self.device = device
         self.shuffle()
         self.shuffle_every = shuffle_every
 
@@ -64,7 +68,7 @@ class ColorJitter(nn.Module):
                         1,
                         1,
                     )
-                ).cuda()
+                ).to(self.device)
                 - 0.5
             )
             * 2
@@ -79,7 +83,7 @@ class ColorJitter(nn.Module):
                         1,
                         1,
                     )
-                ).cuda()
+                ).to(self.device)
                 - 0.5
             )
             * 2

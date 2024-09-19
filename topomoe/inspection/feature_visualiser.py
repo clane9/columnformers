@@ -203,9 +203,7 @@ class ImageNetVisualizer:
         self.lr = lr
         self.device = device
 
-    def __call__(
-        self, img: torch.tensor = None, optimizer: optim.Optimizer = None
-    ):
+    def __call__(self, img: torch.tensor = None, optimizer: optim.Optimizer = None):
         img = img.detach().clone().to(self.device).requires_grad_()
 
         optimizer = (
@@ -216,6 +214,10 @@ class ImageNetVisualizer:
         lr_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, self.steps, 0.0)
 
         print(f"#i\t{self.loss.header()}", flush=True)
+
+        best_loss = 1e9
+        best_loss_img = None
+        best_iteration = None
 
         for i in range(self.steps + 1):
             optimizer.zero_grad()
@@ -233,8 +235,12 @@ class ImageNetVisualizer:
 
             img.data = (self.post_aug(img) if self.post_aug is not None else img).data
 
+            if loss.item() < best_loss:
+                best_loss_img = img
+                best_iteration = i
+
             self.loss.reset()
             torch.cuda.empty_cache()
 
         optimizer.state = collections.defaultdict(dict)
-        return img
+        return img, best_loss_img, best_iteration

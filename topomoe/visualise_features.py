@@ -32,8 +32,9 @@ class Args:
     feature: int = HfArg(aliases=["--feature"], default=0, help="# Feature")
     layer: int = HfArg(aliases=["--layer"], default=0, help="# Layer")
     lr: float = HfArg(aliases=["--lr"], default=0.1, help="Learning Rate")
+    steps: int = HfArg(aliases=["--steps"], default=500, help="# Steps to train for")
     total_variance: float = HfArg(
-        aliases=["--tv"], default=1.0, help="TotalVar Lambda=v * 0.0005"
+        aliases=["--tv"], default=1.0, help="TotalVar Lambda=tv * 0.0005"
     )
 
     # Model
@@ -134,15 +135,17 @@ def main(args: Args):
     pre, post = (
         torch.nn.Sequential(
             RepeatBatch(8),
-            ColorJitter(8, shuffle_every=True),
-            GaussianNoise(8, True, 0.5, 400),
+            ColorJitter(batch_size=8, device=device, shuffle_every=True),
+            GaussianNoise(
+                batch_size=8, device=device, shuffle_every=True, std=0.5, max_iter=400
+            ),
             Tile(1),
             Jitter(),
         ),
         Clip(),
     )
-
     image = new_init(size=image_size, batch_size=1, device=device)
+    best_image = new_init(size=image_size, batch_size=1, device=device)
     visualizer = ImageNetVisualizer(
         loss_array=loss,
         device=device,
@@ -151,11 +154,16 @@ def main(args: Args):
         post_aug=post,
         print_every=10,
         lr=args.lr,
-        steps=400,
+        steps=args.steps,
         save_every=100,
     )
-    image.data = visualizer(image)
-    saver.save(image, "final")
+
+    final_image, best_image, best_iteration = visualizer(image)
+    image.data = final_image
+    best_image.data = best_image
+
+    saver.save(image, f"final_{args.steps}_steps_lr{args.lr}")
+    saver.save(best_image, f"best_it{best_iteration}_{args.steps}_steps_lr{args.lr}")
 
 
 if __name__ == "__main__":
@@ -168,77 +176,3 @@ if __name__ == "__main__":
     else:
         (args,) = parser.parse_args_into_dataclasses()
     main(args)
-
-
-[
-    "stages.0.grid_embed",
-    "stages.1.grid_embed",
-    "stages.1.pool.grid_embed",
-    "stages.1.maps.grid_embed",
-    "stages.1.maps.expert_embed",
-    "stages.1.blocks.0.attn.q.maps.grid_embed",
-    "stages.1.blocks.0.attn.q.maps.expert_embed",
-    "stages.1.blocks.0.mlp.fc1.maps.grid_embed",
-    "stages.1.blocks.0.mlp.fc1.maps.expert_embed",
-    "stages.1.blocks.0.mlp.fc2.maps.grid_embed",
-    "stages.1.blocks.0.mlp.fc2.maps.expert_embed",
-    "stages.1.blocks.1.attn.q.maps.grid_embed",
-    "stages.1.blocks.1.attn.q.maps.expert_embed",
-    "stages.1.blocks.1.mlp.fc1.maps.grid_embed",
-    "stages.1.blocks.1.mlp.fc1.maps.expert_embed",
-    "stages.1.blocks.1.mlp.fc2.maps.grid_embed",
-    "stages.1.blocks.1.mlp.fc2.maps.expert_embed",
-    "stages.2.grid_embed",
-    "stages.2.pool.grid_embed",
-    "stages.2.maps.grid_embed",
-    "stages.2.maps.expert_embed",
-    "stages.2.blocks.0.attn.q.maps.grid_embed",
-    "stages.2.blocks.0.attn.q.maps.expert_embed",
-    "stages.2.blocks.0.mlp.fc1.maps.grid_embed",
-    "stages.2.blocks.0.mlp.fc1.maps.expert_embed",
-    "stages.2.blocks.0.mlp.fc2.maps.grid_embed",
-    "stages.2.blocks.0.mlp.fc2.maps.expert_embed",
-    "stages.2.blocks.1.attn.q.maps.grid_embed",
-    "stages.2.blocks.1.attn.q.maps.expert_embed",
-    "stages.2.blocks.1.mlp.fc1.maps.grid_embed",
-    "stages.2.blocks.1.mlp.fc1.maps.expert_embed",
-    "stages.2.blocks.1.mlp.fc2.maps.grid_embed",
-    "stages.2.blocks.1.mlp.fc2.maps.expert_embed",
-]
-[
-    "stages.0.pos_embed",
-    "stages.1.pos_embed",
-    "stages.1.pool.pos_embed",
-    "stages.1.pool.weight",
-    "stages.1.maps.pos_embed",
-    "stages.1.maps.weight",
-    "stages.1.blocks.0.attn.q.maps.pos_embed",
-    "stages.1.blocks.0.attn.q.maps.weight",
-    "stages.1.blocks.0.mlp.fc1.maps.pos_embed",
-    "stages.1.blocks.0.mlp.fc1.maps.weight",
-    "stages.1.blocks.0.mlp.fc2.maps.pos_embed",
-    "stages.1.blocks.0.mlp.fc2.maps.weight",
-    "stages.1.blocks.1.attn.q.maps.pos_embed",
-    "stages.1.blocks.1.attn.q.maps.weight",
-    "stages.1.blocks.1.mlp.fc1.maps.pos_embed",
-    "stages.1.blocks.1.mlp.fc1.maps.weight",
-    "stages.1.blocks.1.mlp.fc2.maps.pos_embed",
-    "stages.1.blocks.1.mlp.fc2.maps.weight",
-    "stages.2.pos_embed",
-    "stages.2.pool.pos_embed",
-    "stages.2.pool.weight",
-    "stages.2.maps.pos_embed",
-    "stages.2.maps.weight",
-    "stages.2.blocks.0.attn.q.maps.pos_embed",
-    "stages.2.blocks.0.attn.q.maps.weight",
-    "stages.2.blocks.0.mlp.fc1.maps.pos_embed",
-    "stages.2.blocks.0.mlp.fc1.maps.weight",
-    "stages.2.blocks.0.mlp.fc2.maps.pos_embed",
-    "stages.2.blocks.0.mlp.fc2.maps.weight",
-    "stages.2.blocks.1.attn.q.maps.pos_embed",
-    "stages.2.blocks.1.attn.q.maps.weight",
-    "stages.2.blocks.1.mlp.fc1.maps.pos_embed",
-    "stages.2.blocks.1.mlp.fc1.maps.weight",
-    "stages.2.blocks.1.mlp.fc2.maps.pos_embed",
-    "stages.2.blocks.1.mlp.fc2.maps.weight",
-]
