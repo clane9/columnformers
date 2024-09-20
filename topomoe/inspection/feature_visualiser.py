@@ -238,6 +238,7 @@ class ImageNetVisualizer:
             if loss.item() < best_loss:
                 best_loss_img = img
                 best_iteration = i
+                best_loss = loss.item()
 
             self.loss.reset()
             torch.cuda.empty_cache()
