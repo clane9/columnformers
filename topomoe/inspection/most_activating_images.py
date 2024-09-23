@@ -121,7 +121,7 @@ def get_most_activating_image_for_feature(
     dataset: str,
     num_img: int = 1,
     img_size: int = 100,
-) -> Image.Image:
+) -> Tuple[Image.Image, torch.Tensor]:
 
     dataset = create_dataset(dataset, root=None, download=True)
 
@@ -159,7 +159,7 @@ def get_most_activating_image_for_feature(
             grid_img.paste(data_img, (0, y_offset))
             grid_img.paste(saliency_img.convert("RGB"), (img_size, y_offset))
 
-        return grid_img
+        return grid_img, top_indices
 
 
 def threed_plot_activations(
