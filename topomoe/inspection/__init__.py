@@ -1,5 +1,7 @@
+from . import feature_visualiser  # noqa
 from . import features  # noqa
 from . import figures  # noqa
+from . import image_augmentation  # noqa
 from . import metrics  # noqa
 from .registry import (  # noqa
     Figure,

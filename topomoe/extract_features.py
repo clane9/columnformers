@@ -171,17 +171,16 @@ def main(args: Args):
     input_size = int(args.model.split("_")[-1])
     input_size = (3, input_size, input_size)
 
-    # TODO: check what the specific strings are for the splits in is_training
     loader = create_loader(
         dataset,
         input_size=input_size,
         batch_size=args.batch_size,
         is_training=True if args.split == "train" else False,
-        scale=args.scale,
-        ratio=args.ratio,
-        hflip=args.hflip,
-        crop_pct=args.crop_pct,
-        color_jitter=args.color_jitter,
+        scale=args.scale if args.split == "train" else None,
+        ratio=args.ratio if args.split == "train" else None,
+        hflip=args.hflip if args.split == "train" else 0.5,
+        crop_pct=args.crop_pct if args.split == "validation" else None,
+        color_jitter=args.color_jitter if args.split == "train" else 0.4,
         interpolation="bicubic",
         num_workers=args.workers,
         persistent_workers=args.workers > 0,
@@ -189,6 +188,7 @@ def main(args: Args):
         device=clust.device,
         use_prefetcher=args.prefetch,
     )
+
     logging.info(f"\n\tnum samples: {len(dataset)}\n")
 
     logging.info("Creating model %s", args.model)

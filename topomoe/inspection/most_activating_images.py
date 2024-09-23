@@ -5,8 +5,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from PIL import Image
+from skimage.metrics import structural_similarity as ssim
+from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 from timm.data import create_dataset
+
+from columnformers.models.geometry import multilayer_geometry
 
 
 def create_most_activating_image_grid(
@@ -110,6 +114,197 @@ def create_image_grid(
     return grid_img
 
 
+def get_most_activating_image_for_feature(
+    layer: str,
+    feature: int,
+    features_path: str,
+    dataset: str,
+    num_img: int = 1,
+    img_size: int = 100,
+) -> Tuple[Image.Image, torch.Tensor]:
+
+    dataset = create_dataset(dataset, root=None, download=True)
+
+    with h5py.File(features_path, "r") as f:
+        activations = torch.tensor(np.array(f[layer]))[:, :, feature]
+        # -> num_images x seq_len
+        total_activations = activations.sum(dim=1)
+        # -> num_images
+        top_indices = torch.topk(total_activations, num_img, 0).indices
+        # -> num_img
+
+        data_images = [
+            dataset[i][0].resize((img_size, img_size)) for i in top_indices.tolist()
+        ]
+
+        dim = int(activations.shape[1] ** 0.5)
+
+        saliency_maps = []
+
+        for i in top_indices.tolist():
+            act = activations[i, :].view(dim, dim).detach().numpy()
+
+            # Normalise the activation values to [0, 255]
+            act_min = act.min()
+            act_max = act.max()
+            normalized_act = 255 * (act - act_min) / (act_max - act_min)
+
+            saliency_img = Image.fromarray(normalized_act.astype(np.uint8)).convert("L")
+            saliency_maps.append(saliency_img.resize((img_size, img_size)))
+
+        grid_img = Image.new("RGB", (2 * img_size, num_img * img_size))
+
+        for idx, (data_img, saliency_img) in enumerate(zip(data_images, saliency_maps)):
+            y_offset = idx * img_size
+            grid_img.paste(data_img, (0, y_offset))
+            grid_img.paste(saliency_img.convert("RGB"), (img_size, y_offset))
+
+        return grid_img, top_indices
+
+
+def threed_plot_activations(
+    layer: str,
+    image_idx: int,
+    features_path: str,
+    dataset: str,
+    desired_variance: float = 0.9,
+) -> Image.Image:
+
+    dataset = create_dataset(dataset, root=None, download=True)
+
+    with h5py.File(features_path, "r") as f:
+        dim = int(f[layer].shape[1] ** 0.5)
+        acts = np.array(f[layer])[image_idx, :, :]
+
+        pca_est = PCA()
+        pca_est.fit(acts)
+        explained_variance_ratio = pca_est.explained_variance_ratio_
+        cumulative_explained_variance = np.cumsum(explained_variance_ratio)
+        k = np.argmax(cumulative_explained_variance >= desired_variance) + 1
+
+        pca = PCA(n_components=k)
+        tensor_reduced = pca.fit_transform(acts)
+        activations = tensor_reduced.reshape((dim, dim, k))
+
+        x, y, z = np.indices(activations.shape)
+
+        x = x.flatten()
+        y = y.flatten()
+        z = z.flatten()
+        values = activations.flatten()
+
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection="3d")
+
+        sc = ax.scatter(x, y, z, c=values, cmap="copper")
+
+        ax.set_xlabel("H")
+        ax.set_ylabel("W")
+        ax.set_zlabel("F")
+
+        plt.title(f"IMGPCA_L({layer})_I({image_idx})_K({k})")
+
+        plt.colorbar(sc)
+        plt.show()
+
+
+def threed_plot_activations_v2(
+    layer: str,
+    image_idx: int,
+    features_path: str,
+    dataset: str,
+    desired_variance: float = 0.9,
+) -> Image.Image:
+
+    dataset = create_dataset(dataset, root=None, download=True)
+
+    with h5py.File(features_path, "r") as f:
+        activations = torch.tensor(np.array(f[layer]))
+
+        num_images, seq_len, _ = activations.shape
+
+        dim = int(seq_len**0.5)
+
+        flattened_activations = activations.flatten(0, 1).numpy()
+
+        pca_est = PCA()
+        pca_est.fit(flattened_activations)
+        explained_variance_ratio = pca_est.explained_variance_ratio_
+        cumulative_explained_variance = np.cumsum(explained_variance_ratio)
+        k = np.argmax(cumulative_explained_variance >= desired_variance) + 1
+
+        pca = PCA(n_components=k)
+        tensor_reduced = pca.fit_transform(flattened_activations)
+        pca_img_acts = tensor_reduced.reshape((num_images, dim, dim, k))[
+            image_idx, :, :, :
+        ]
+
+        x, y, z = np.indices(pca_img_acts.shape)
+
+        x = x.flatten()
+        y = y.flatten()
+        z = z.flatten()
+        values = pca_img_acts.flatten()
+
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection="3d")
+
+        sc = ax.scatter(x, y, z, c=values, cmap="copper")
+
+        ax.set_xlabel("H")
+        ax.set_ylabel("W")
+        ax.set_zlabel("F")
+
+        plt.title(f"DATAPCA_L({layer})_I({image_idx})_K({k})")
+
+        plt.colorbar(sc)
+        plt.show()
+
+
+def dino_rgb_viz(layer: str, image_idx: list[int], features_path: str):
+    """
+    Args:
+        - layer: layer to take activations from
+        - image_idx: list of image indices from the same category
+        - features_path: path to saved extracted features
+
+    Colour the three first components with three different colours for each image and display in 2d
+    """
+
+    with h5py.File(features_path, "r") as f:
+        activations = np.array(f[layer])
+
+        dim = int(activations.shape[1] ** 0.5)
+
+        first_pca = PCA(n_components=1)
+        second_pca = PCA(n_components=3)
+
+        positive_idx = []
+        positive_acts = []
+
+        final_img = np.zeros((len(image_idx), activations.shape[1], 3))
+
+        # For each image, get the first principal component and remove patches with negative values
+        for idx in image_idx:
+            img_acts = activations[idx, :, :]
+            img_acts_reduced = first_pca.fit_transform(img_acts)
+            img_pos_idx = np.where(img_acts_reduced >= 0)[0]
+            positive_idx.append(img_pos_idx)
+            positive_acts.append(img_acts[img_pos_idx, :])
+
+        # Find top 3 components over the remaining patches across the three images
+        non_negative_patches = np.vstack(positive_acts)
+        positive_acts_reduced = second_pca.fit_transform(non_negative_patches)
+        start = 0
+        for i, idx in enumerate(positive_idx):
+            final_img[i, idx, :] = positive_acts_reduced[start : start + len(idx), :]
+            start += len(idx)
+
+        final_img = final_img.reshape((len(image_idx), dim, dim, 3))
+
+        return final_img
+
+
 def pca_activations(activations: torch.Tensor, desired_variance: float) -> torch.Tensor:
     """
     Perform PCA over the activations for each patch individually.
@@ -159,19 +354,112 @@ def lp_activations(activations: torch.Tensor, p: int) -> torch.Tensor:
     return torch.linalg.vector_norm(activations, ord=p, dim=2)
 
 
-layers = [
-    "stages.0.blocks.1.mlp.act",
-    # "stages.1.blocks.1.mlp.act",
-    # "stages.2.blocks.1.mlp.act",
-]
-features_path = "topomoe_features/topomoe_tiny_1s_patch16_128/validation_features.h5"
+def morans_i(activations: torch.Tensor):
+    # activations shape num_patches x embedding_dim
+    num_patches, embedding_dim = activations.shape
+    root_num_patches = int(num_patches**0.5)
 
-dataset = "hfds/clane9/imagenet-100"
+    activations = activations.reshape(embedding_dim, root_num_patches, root_num_patches)
+    distances = multilayer_geometry(
+        [root_num_patches] * embedding_dim, depth_offset=1.0
+    )
+    w = 1 / (distances + 1) ** 2
+    flattened_acts = activations.flatten()
 
-visualisations = create_most_activating_image_grid(layers, features_path, dataset)
+    mean_act = torch.mean(flattened_acts).item()
 
-for layer, img in visualisations.items():
-    plt.imshow(img)
-    plt.title(f"topomoe_tiny_1s_patch16_128_{layer}")
-    plt.axis("off")
-    plt.show()
+    s = torch.sum(
+        w
+        * (flattened_acts - mean_act).unsqueeze(1)
+        * (flattened_acts - mean_act).unsqueeze(0)
+    ).item()
+
+    sum_sqr_acts = torch.sum((flattened_acts - mean_act) ** 2).item()
+    return (flattened_acts.shape[0] / torch.sum(w).item()) * (s / sum_sqr_acts)
+
+
+def activation_difference(activations1: torch.Tensor, activations2: torch.Tensor):
+    assert activations1.shape == activations2.shape
+    return (
+        torch.sum((activations1 - activations2) ** 2).item() / activations1.numel()
+    ) ** 0.5
+
+
+def activation_structural_similarity(
+    activations1: torch.Tensor, activations2: torch.Tensor
+) -> float:
+    assert activations1.shape == activations2.shape
+
+    # activations of shape num_patches x embedding_dim
+    num_patches, embedding_dim = activations1.shape
+    dim = int(num_patches**0.5)
+
+    activations1 = activations1.reshape(dim, dim, embedding_dim).numpy()
+    activations2 = activations2.reshape(dim, dim, embedding_dim).numpy()
+
+    act_max = max(activations1.max(), activations2.max())
+    act_min = min(activations1.min(), activations2.min())
+
+    ssim_const = ssim(
+        activations1, activations2, data_range=act_max - act_min, channel_axis=2
+    )
+    return ssim_const
+
+
+def clustering_similarity(
+    activations1: torch.Tensor, activations2: torch.Tensor, n_clusters: int
+):
+
+    activations1_flat = activations1.flatten().numpy()
+    activations2_flat = activations2.flatten().numpy()
+
+    kmeans_1 = KMeans(n_clusters=n_clusters).fit(activations1_flat.reshape(-1, 1))
+    kmeans_2 = KMeans(n_clusters=n_clusters).fit(activations2_flat.reshape(-1, 1))
+
+    return (kmeans_1.labels_ == kmeans_2.labels_).mean()
+
+
+def plot_top_activated_features(
+    img_idx: int,
+    layer: str,
+    num_features: int,
+    features_path: str,
+    dataset: str,
+    img_size: int = 100,
+):
+
+    dataset = create_dataset(dataset, root=None, download=True)
+
+    with h5py.File(features_path, "r") as f:
+        activations = torch.tensor(np.array(f[layer]))[
+            img_idx, :, :
+        ]  # num_patches x embedding_dim
+        feature_acts = torch.linalg.vector_norm(
+            activations, ord=2, dim=0
+        )  # embedding_dim
+        top_feature_idx = torch.topk(
+            feature_acts, num_features, 0
+        ).indices.tolist()  # num_features
+
+        dim = int(activations.shape[0] ** 0.5)
+
+        images = [dataset[img_idx][0]]
+
+        for i in top_feature_idx:
+            act = activations[:, i].view(dim, dim).detach().numpy()
+
+            # Normalise the activation values to [0, 255]
+            act_min = act.min()
+            act_max = act.max()
+            normalized_act = 255 * (act - act_min) / (act_max - act_min)
+
+            saliency_img = Image.fromarray(normalized_act.astype(np.uint8)).convert("L")
+            images.append(saliency_img.resize((img_size, img_size)))
+
+        grid_img = Image.new("RGB", ((num_features + 1) * img_size, img_size))
+
+        for idx, img in enumerate(images):
+            x_offset = idx * img_size
+            grid_img.paste(img.convert("RGB"), (x_offset, 0))
+
+        return grid_img, top_feature_idx
