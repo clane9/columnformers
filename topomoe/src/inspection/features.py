@@ -29,7 +29,6 @@ class FeatureExtractor:
     """
 
     def __init__(self, model: nn.Module, layers: List[str], detach: bool = True):
-
         self.model = model
         self.layers = self.expand_layers(model, layers)
         self.detach = detach
