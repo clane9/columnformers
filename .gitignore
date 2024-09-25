@@ -25,7 +25,6 @@ _version.py
 checkpoints
 results
 test_results
-notebooks
 
 # Jupyter
 .ipynb_checkpoints
