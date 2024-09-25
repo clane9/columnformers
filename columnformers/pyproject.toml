@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=45", "setuptools_scm[toml]>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "columnformers"
+description = "A transformer-inspired model of the brain"
+authors = [
+    {name = "Connor Lane", email = "connor.lane858@gmail.com"},
+]
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT License"}
+dependencies = [
+    "datasets",
+    "fvcore",
+    "matplotlib",
+    "numpy",
+    "Pillow",
+    "timm",
+    "torch",
+    "torchvision",
+    "transformers",
+    "wandb",
+]
+dynamic = ["version"]
+
+[project.urls]
+"Homepage" = "https://github.com/clane9/columnformers"
+
+[tool.setuptools_scm]
+root = "../"
+write_to = "columnformers/src/_version.py"
+
+
+[tool.isort]
+profile = "black"
+
+[tool.pytest.ini_options]
+log_cli = true
+log_cli_level = "INFO"
