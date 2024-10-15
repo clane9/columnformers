@@ -52,7 +52,9 @@ def create_most_activating_image_grid(
         for layer in layers:
             activations = torch.tensor(np.array(f[layer]))
             # -> num_images x seq_len x embedding_dim
-            activations = lp_activations(activations, p)
+            activations = lp_activations(
+                activations=activations, p=p, subtract_mean="post"
+            )
             # -> num_images x seq_len
             activations = torch.topk(activations, num_img, 0).indices
             # -> num_img x seq_len
@@ -261,6 +263,50 @@ def threed_plot_activations_v2(
         plt.show()
 
 
+def threed_plot_activations_no_pca(
+    layer: str,
+    image_idx: int,
+    features_path: str,
+    dataset: str,
+    threshold: float = 0.001,
+) -> Image.Image:
+
+    dataset = create_dataset(dataset, root=None, download=True)
+
+    with h5py.File(features_path, "r") as f:
+        dim = int(f[layer].shape[1] ** 0.5)
+        acts = np.array(f[layer])[image_idx, :, :]
+
+        activations = acts.reshape((dim, dim, acts.shape[-1]))
+
+        x, y, z = np.indices(activations.shape)
+
+        x = x.flatten()
+        y = y.flatten()
+        z = z.flatten()
+        values = activations.flatten()
+
+        mask = values >= threshold
+        x = x[mask]
+        y = y[mask]
+        z = z[mask]
+        values = values[mask]
+
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection="3d")
+
+        sc = ax.scatter(x, y, z, c=values, cmap="YlOrRd")
+
+        ax.set_xlabel("H")
+        ax.set_ylabel("W")
+        ax.set_zlabel("F")
+
+        plt.title(f"L({layer})_I({image_idx})")
+
+        plt.colorbar(sc)
+        plt.show()
+
+
 def dino_rgb_viz(layer: str, image_idx: list[int], features_path: str):
     """
     Args:
@@ -340,18 +386,33 @@ def pca_activations(activations: torch.Tensor, desired_variance: float) -> torch
     return l2_norm_activations.reshape(num_images, seq_len)
 
 
-def lp_activations(activations: torch.Tensor, p: int) -> torch.Tensor:
+def lp_activations(
+    activations: torch.Tensor, p: int = 2, subtract_mean: str | None = None
+) -> torch.Tensor:
     """
     Calculates the l1 norm of the activation vectors.
 
     Args:
         - activations: tensor of activations of shape num_images, seq_len, embedding_dim
         - p: the order of the norm
+        - subtract_mean: "pre" = subtract mean across all patches before taking norm,
+                         "post" = take norm first and then subtract the mean across patches,
+                          None = just take the Lp norm without mean subtraction
     Returns:
         - a tensor of shape num_images, seq_len with a measure of the activation strength for each image and patch
     """
+    if subtract_mean == "post":
+        activations = torch.linalg.vector_norm(activations, ord=p, dim=2)
+        activations = activations - activations.mean(dim=1, keepdim=True)
 
-    return torch.linalg.vector_norm(activations, ord=p, dim=2)
+    elif subtract_mean == "pre":
+        activations = activations - activations.mean(dim=1, keepdim=True)
+        activations = torch.linalg.vector_norm(activations, ord=p, dim=2)
+
+    else:
+        activations = torch.linalg.vector_norm(activations, ord=p, dim=2)
+
+    return activations
 
 
 def morans_i(activations: torch.Tensor):
@@ -463,3 +524,42 @@ def plot_top_activated_features(
             grid_img.paste(img.convert("RGB"), (x_offset, 0))
 
         return grid_img, top_feature_idx
+
+
+def plot_top_activated_patches(
+    img_idx: int,
+    layer: str,
+    features_path: str,
+    dataset: str,
+    img_size: int = 100,
+):
+
+    dataset = create_dataset(dataset, root=None, download=True)
+
+    with h5py.File(features_path, "r") as f:
+        activations = torch.tensor(np.array(f[layer]))[
+            img_idx, :, :
+        ]  # num_patches x embedding_dim
+        patch_acts = torch.linalg.vector_norm(activations, ord=2, dim=1)  # num_patches
+
+        dim = int(activations.shape[0] ** 0.5)
+
+        images = [dataset[img_idx][0]]
+
+        patch_acts = patch_acts.view(dim, dim).detach().numpy()
+
+        # Normalise the activation values to [0, 255]
+        act_min = patch_acts.min()
+        act_max = patch_acts.max()
+        normalized_act = 255 * (patch_acts - act_min) / (act_max - act_min)
+
+        saliency_img = Image.fromarray(normalized_act.astype(np.uint8)).convert("L")
+        images.append(saliency_img.resize((img_size, img_size)))
+
+        grid_img = Image.new("RGB", (2 * img_size, img_size))
+
+        for idx, img in enumerate(images):
+            x_offset = idx * img_size
+            grid_img.paste(img.convert("RGB"), (x_offset, 0))
+
+        return grid_img
