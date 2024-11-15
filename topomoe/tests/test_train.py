@@ -1,8 +1,19 @@
 import pytest
-
-from topomoe import train
+import sys
+sys.path.append('../')
+from topomoe.src import train
 
 configs = {
+    "vit_small": train.Args(
+        name="debug_train_vit_small",
+        out_dir="topomoe/test_results",
+        model="vit_base_patch16_128",
+        dataset="hfds/clane9/imagenet-100",
+        workers=1,
+        batch_size=1024,
+        overwrite=True,
+        debug=False,
+    ),
     "transformer": train.Args(
         name="debug_train_transformer",
         out_dir="topomoe/test_results",
@@ -74,6 +85,7 @@ configs = {
 @pytest.mark.parametrize(
     "config",
     [
+        "vit_small",
         "transformer",
         "transformer_v2",
         "quadmoe",
@@ -85,3 +97,5 @@ configs = {
 def test_train(config: str):
     args = configs[config]
     train.main(args)
+
+test_train("vit_small")

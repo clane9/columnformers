@@ -28,9 +28,9 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader
 from transformers.hf_argparser import HfArg, HfArgumentParser
 
-from topomoe import utils as ut
-from topomoe.inspection import Figure, Metric, create_figures, create_metrics
-from topomoe.models import create_model, list_models
+from topomoe.src import utils as ut
+from topomoe.src.inspection import Figure, Metric, create_figures, create_metrics
+from topomoe.src.models import create_model, list_models
 
 np.set_printoptions(precision=3)
 plt.switch_backend("Agg")
@@ -116,7 +116,7 @@ class Args:
         aliases=["--inmem"], default=False, help="keep dataset in memory"
     )
     # Optimization
-    epochs: int = HfArg(default=100, help="number of epochs")
+    epochs: int = HfArg(default=2, help="number of epochs")
     batch_size: int = HfArg(
         aliases=["--bs"], default=256, help="batch size per replica"
     )
