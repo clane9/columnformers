@@ -504,3 +504,59 @@ def topomoe_tiny_3s_patch16_128(**kwargs):
     }
     model = model_factory(TopoMoETransformer, params, defaults, **kwargs)
     return model
+
+
+
+
+@register_model
+def vit_tiny_patch16_128(**kwargs):
+    params = {
+        "img_size": 128,
+        "patch_size": 16,
+        "in_chans": 3,
+        "depths": (6,),
+        "widths": None,
+        "embed_dim": 384,
+        "num_experts": (1,),
+    }
+    defaults = {
+        "num_heads": 6,
+    }
+    model = model_factory(TopoMoETransformer, params, defaults, **kwargs)
+    return model
+
+
+@register_model
+def vit_small_patch16_128(**kwargs):
+    params = {
+        "img_size": 128,
+        "patch_size": 16,
+        "in_chans": 3,
+        "depths": (12,),
+        "widths": None,
+        "embed_dim": 384,
+        "num_experts": (1,),
+    }
+    defaults = {
+        "num_heads": 12,
+    }
+    model = model_factory(TopoMoETransformer, params, defaults, **kwargs)
+    return model
+
+
+@register_model
+def vit_base_patch16_128(**kwargs): 
+    params = {
+        "img_size": 128,
+        "patch_size": 16,
+        "in_chans": 3,
+        "depths": (12,),
+        "widths": None,
+        "embed_dim": 768,
+        "num_experts": (1,),
+    }
+    defaults = {
+        "num_heads": 12,
+    }
+    model = model_factory(TopoMoETransformer, params, defaults, **kwargs)
+    return model

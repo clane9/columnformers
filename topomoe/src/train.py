@@ -241,6 +241,7 @@ def main(args: Args):
 
     # Dataset
     logging.info("Loading dataset %s", args.dataset)
+    import pdb;pdb.set_trace()
     dataset_train = create_dataset(
         args.dataset,
         root=args.data_dir,
@@ -283,6 +284,7 @@ def main(args: Args):
         device=clust.device,
         use_prefetcher=args.prefetch,
     )
+    import pdb;pdb.set_trace()
     loader_eval = create_loader(
         dataset_eval,
         input_size=input_size,
@@ -516,6 +518,7 @@ def train_one_epoch(
         data_time = time.monotonic() - end
 
         # forward pass
+        #import pdb;pdb.set_trace()
         with autocast():
             output, losses, state = model(input)
             losses["class_loss"] = loss_fn(output, target)
