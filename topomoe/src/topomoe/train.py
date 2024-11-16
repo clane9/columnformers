@@ -116,7 +116,7 @@ class Args:
         aliases=["--inmem"], default=False, help="keep dataset in memory"
     )
     # Optimization
-    epochs: int = HfArg(default=2, help="number of epochs")
+    epochs: int = HfArg(default=100, help="number of epochs")
     batch_size: int = HfArg(
         aliases=["--bs"], default=256, help="batch size per replica"
     )
@@ -283,7 +283,6 @@ def main(args: Args):
         device=clust.device,
         use_prefetcher=args.prefetch,
     )
-
     loader_eval = create_loader(
         dataset_eval,
         input_size=input_size,
