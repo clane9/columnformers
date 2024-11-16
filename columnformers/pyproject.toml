@@ -30,7 +30,7 @@ dynamic = ["version"]
 
 [tool.setuptools_scm]
 root = "../"
-write_to = "columnformers/src/_version.py"
+write_to = "columnformers/src/columnformers/_version.py"
 
 
 [tool.isort]

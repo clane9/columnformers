@@ -1,8 +1,27 @@
 import pytest
-
 from topomoe import train
 
 configs = {
+    "vit_small": train.Args(
+        name="debug_train_vit_small",
+        out_dir="topomoe/test_results",
+        model="vit_small_patch16_224",
+        dataset="hfds/clane9/imagenet-100",
+        workers=0,
+        batch_size=32,
+        overwrite=True,
+        debug=True,
+    ),
+    "vit_base": train.Args(
+        name="debug_train_vit_base",
+        out_dir="topomoe/test_results",
+        model="vit_base_patch16_224",
+        dataset="hfds/clane9/imagenet-100",
+        workers=0,
+        batch_size=32,
+        overwrite=True,
+        debug=True,
+    ),
     "transformer": train.Args(
         name="debug_train_transformer",
         out_dir="topomoe/test_results",
@@ -68,18 +87,32 @@ configs = {
         overwrite=True,
         debug=True,
     ),
+    "topomoe_small": train.Args(
+        name="debug_train_topomoe_small",
+        out_dir="topomoe/test_results",
+        model="topomoe_small_2s_patch16_224",
+        wiring_lambd=0.01,
+        dataset="hfds/clane9/imagenet-100",
+        workers=0,
+        batch_size=32,
+        overwrite=True,
+        debug=True,
+    ),
 }
 
 
 @pytest.mark.parametrize(
     "config",
     [
+        "vit_small",
+        "vit_base",
         "transformer",
         "transformer_v2",
         "quadmoe",
         "softmoe",
         "topomoe",
         "aug",
+        "topomoe_small",
     ],
 )
 def test_train(config: str):
