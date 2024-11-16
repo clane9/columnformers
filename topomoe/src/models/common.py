@@ -6,7 +6,7 @@ from torch import nn
 from timm.layers import trunc_normal_
 from timm.layers.helpers import to_2tuple, to_3tuple
 
-from topomoe.utils import filter_kwargs
+from topomoe.src.utils import filter_kwargs
 
 State = Dict[str, torch.Tensor]
 Layer = Callable[..., nn.Module]
