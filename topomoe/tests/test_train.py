@@ -3,9 +3,6 @@ import sys
 sys.path.append('../')
 from topomoe.src import train
 
-# Replace with your path to Imagenet1k (ILSVRC2012) with train and val folders 
-imagenet_path =  "../../datasets/ILSVRC2012/" 
-
 configs = {
     "vit_small": train.Args(
         name="debug_train_vit_small",
@@ -91,109 +88,7 @@ configs = {
         batch_size=32,
         overwrite=True,
         debug=True,
-    ),
-    ## Imagenet1k
-    "vit_small_imagenet1k": train.Args(
-        name="debug_train_vit_small",
-        out_dir="topomoe/test_results",
-        model="vit_small_patch16_128", 
-        dataset= "imagenet1k", 
-        data_dir = imagenet_path,
-        workers=1,
-        num_classes=1000,
-        batch_size=1024,
-        overwrite=True,
-        debug=True,
-    ),
-    "vit_base_imagenet1k": train.Args(
-        name="debug_train_vit_small",
-        out_dir="topomoe/test_results",
-        model="vit_base_patch16_128", 
-        dataset= "imagenet1k",
-        data_dir = imagenet_path,
-        workers=1,
-        num_classes=1000,
-        batch_size=1024,
-        overwrite=True,
-        debug=True,
-    ),
-    "transformer_imagenet1k": train.Args(
-        name="debug_train_transformer",
-        out_dir="topomoe/test_results",
-        model="quadmoe_tiny_1s_patch16_128",
-        dataset="imagenet1k", 
-        data_dir = imagenet_path,
-        workers=0,
-        num_classes=1000,
-        batch_size=1024,
-        overwrite=True,
-        debug=True,
-    ),
-    "transformer_v2_imagenet1k": train.Args(
-        name="debug_train_transformer_v2",
-        out_dir="topomoe/test_results",
-        model="topomoe_tiny_1s_patch16_128",
-        dataset="imagenet1k", 
-        data_dir = imagenet_path,
-        workers=0,
-        num_classes=1000,
-        batch_size=32,
-        overwrite=True,
-        debug=True,
-    ),
-    "quadmoe_imagenet1k": train.Args(
-        name="debug_train_quadmoe",
-        out_dir="topomoe/test_results",
-        model="quadmoe_tiny_2s_patch16_128",
-        dataset="imagenet1k", 
-        data_dir = imagenet_path,
-        workers=0,
-        num_classes=1000,
-        batch_size=32,
-        overwrite=True,
-        debug=True,
-    ),
-    "softmoe_imagenet1k": train.Args(
-        name="debug_train_softmoe",
-        out_dir="topomoe/test_results",
-        model="softmoe_tiny_2s_patch16_128",
-        dataset="imagenet1k", 
-        data_dir = imagenet_path,
-        workers=0,
-        num_classes=1000,
-        batch_size=32,
-        overwrite=True,
-        debug=True,
-    ),
-    "topomoe_imagenet1k": train.Args(
-        name="debug_train_topomoe",
-        out_dir="topomoe/test_results",
-        model="topomoe_tiny_2s_patch16_128",
-        wiring_lambd=0.01,
-        dataset="imagenet1k", 
-        data_dir = imagenet_path,
-        workers=0,
-        num_classes=1000,
-        batch_size=32,
-        overwrite=True,
-        debug=True,
-    ),
-    "aug_imagenet1k": train.Args(
-        name="debug_train_aug",
-        out_dir="topomoe/test_results",
-        model="quadmoe_tiny_1s_patch16_128",
-        dataset="imagenet1k", 
-        data_dir = imagenet_path,
-        num_classes=1000,
-        scale=[0.1, 0.3],
-        ratio=[1 / 4, 4 / 1],
-        hflip=0.5,
-        color_jitter=0.4,
-        workers=0,
-        batch_size=32,
-        overwrite=True,
-        debug=True,
-    ),
+    )
 }
 
 
@@ -216,4 +111,4 @@ def test_train(config: str):
     args = configs[config]
     train.main(args)
 
-test_train("vit_small_imagenet1k")
+test_train("vit_small")
