@@ -28,9 +28,9 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader
 from transformers.hf_argparser import HfArg, HfArgumentParser
 
-from topomoe.src import utils as ut
-from topomoe.src.inspection import Figure, Metric, create_figures, create_metrics
-from topomoe.src.models import create_model, list_models
+from topomoe import utils as ut
+from topomoe.inspection import Figure, Metric, create_figures, create_metrics
+from topomoe.models import create_model, list_models
 
 np.set_printoptions(precision=3)
 plt.switch_backend("Agg")
@@ -241,7 +241,6 @@ def main(args: Args):
 
     # Dataset
     logging.info("Loading dataset %s", args.dataset)
-    import pdb;pdb.set_trace()
     dataset_train = create_dataset(
         args.dataset,
         root=args.data_dir,
@@ -284,7 +283,7 @@ def main(args: Args):
         device=clust.device,
         use_prefetcher=args.prefetch,
     )
-    import pdb;pdb.set_trace()
+
     loader_eval = create_loader(
         dataset_eval,
         input_size=input_size,
@@ -518,7 +517,6 @@ def train_one_epoch(
         data_time = time.monotonic() - end
 
         # forward pass
-        #import pdb;pdb.set_trace()
         with autocast():
             output, losses, state = model(input)
             losses["class_loss"] = loss_fn(output, target)

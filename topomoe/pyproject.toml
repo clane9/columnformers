@@ -30,7 +30,7 @@ dynamic = ["version"]
 
 [tool.setuptools_scm]
 root = "../"
-write_to = "topomoe/src/_version.py"
+write_to = "topomoe/src/topomoe/_version.py"
 
 
 [tool.isort]
