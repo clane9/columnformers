@@ -64,10 +64,11 @@ configs = {
     ),
     "topomoe": train.Args(
         name="debug_train_topomoe",
+        data_dir="/weka/proj-medarc/shared/imagenet",
         out_dir="topomoe/test_results",
         model="topomoe_tiny_2s_patch16_128",
         wiring_lambd=0.01,
-        dataset="hfds/clane9/imagenet-100",
+        dataset="folder",
         workers=0,
         batch_size=32,
         overwrite=True,
@@ -118,3 +119,29 @@ configs = {
 def test_train(config: str):
     args = configs[config]
     train.main(args)
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Run training configurations.")
+    parser.add_argument(
+        "--config",
+        nargs="+",
+        default=None,
+        help="List of configurations to run. If not specified, all configurations will be run.",
+    )
+
+    parsed_args = parser.parse_args()
+
+    if parsed_args.config is not None:
+        configs_to_run = parsed_args.config
+    else:
+        configs_to_run = configs.keys()
+
+    for config in configs_to_run:
+        if config in configs:
+            print(f"Running configuration: {config}")
+            test_train(config)
+        else:
+            print(f"Configuration '{config}' not found.")
