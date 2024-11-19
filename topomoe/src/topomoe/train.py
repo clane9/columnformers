@@ -11,6 +11,7 @@ from dataclasses import asdict, dataclass
 from functools import partial
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
+import PIL
 
 import numpy as np
 import torch
@@ -81,13 +82,16 @@ class Args:
         aliases=["--wsigma"], default=2.0, help="wiring length radius stdev"
     )
     # Dataset
-    dataset: str = HfArg(
-        default="hfds/clane9/imagenet-100", help="timm-compatible dataset name"
+    dataset: Optional[str] = HfArg(
+        default="hfds/clane9/imagenet-100",
+        help="Dataset name (timm compatible). If 'folder', uses data_dir which contains train and val folder of images.",
     )
-    data_dir: Optional[str] = HfArg(default=None, help="dataset directory")
-    download: bool = HfArg(default=True, help="download dataset")
+    data_dir: Optional[str] = HfArg(
+        default=None, help="Dataset directory containing train/ and validation/"
+    )
+    download: bool = HfArg(default=False, help="download dataset if needed")
     train_split: str = HfArg(default="train", help="name of training split")
-    val_split: str = HfArg(default="validation", help="name of val split")
+    val_split: str = HfArg(default="validation", help="name of validation split")
     train_num_samples: Optional[int] = HfArg(
         default=None,
         help="Manually specify num samples in train split, for IterableDatasets",
@@ -241,9 +245,14 @@ def main(args: Args):
 
     # Dataset
     logging.info("Loading dataset %s", args.dataset)
+    if args.dataset == "folder":
+        root_dir = Path(args.data_dir) / args.train_split
+        args.train_split = ""
+    else:
+        root_dir = args.data_dir
     dataset_train = create_dataset(
         args.dataset,
-        root=args.data_dir,
+        root=root_dir,
         split=args.train_split,
         is_training=True,
         download=args.download,
@@ -251,9 +260,12 @@ def main(args: Args):
         num_samples=args.train_num_samples,
         repeats=args.epoch_repeats,
     )
+    if args.dataset == "folder":
+        root_dir = Path(args.data_dir) / args.val_split
+        args.val_split = ""
     dataset_eval = create_dataset(
         args.dataset,
-        root=args.data_dir,
+        root=root_dir,
         split=args.val_split,
         is_training=False,
         download=args.download,
@@ -750,16 +762,23 @@ def validate(
 
 
 def load_dataset_in_memory(dataset: ImageDataset):
-    assert isinstance(dataset.reader, ReaderHfds)
-    dataset.reader.dataset = Dataset.from_dict(
-        dataset.reader.dataset.to_dict(),
-        features=dataset.reader.dataset.features,
-    )
+    if isinstance(dataset.reader, ReaderHfds):
+        dataset.reader.dataset = Dataset.from_dict(
+            dataset.reader.dataset.to_dict(),
+            features=dataset.reader.dataset.features,
+        )
+    else:
+        dataset.samples = [
+            (PIL.Image.open(path).convert("RGB"), target)
+            for path, target in dataset.samples
+        ]
 
 
 def get_num_classes(dataset: ImageDataset):
-    assert isinstance(dataset.reader, ReaderHfds)
-    return dataset.reader.dataset.features["label"].num_classes
+    if isinstance(dataset.reader, ReaderHfds):
+        return dataset.reader.dataset.features["label"].num_classes
+    else:
+        return 1000  # for ImageNet1k
 
 
 @torch.no_grad()
