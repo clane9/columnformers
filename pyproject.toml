@@ -3,8 +3,8 @@ requires = ["setuptools>=45", "setuptools_scm[toml]>=6.2"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "topomoe"
-description = "Topographic mixtures-of-experts vision transformers"
+name = "columnformers"
+description = "A transformer-inspired model of the brain"
 authors = [
     {name = "Connor Lane", email = "connor.lane858@gmail.com"},
 ]
@@ -29,8 +29,7 @@ dynamic = ["version"]
 "Homepage" = "https://github.com/clane9/columnformers"
 
 [tool.setuptools_scm]
-root = "../"
-write_to = "topomoe/src/topomoe/_version.py"
+write_to = "src/columnformers/_version.py"
 
 
 [tool.isort]
