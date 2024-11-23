@@ -167,11 +167,12 @@ class Block(nn.Module):
             dim=dim,
             num_heads=num_heads,
             qkv_bias=qkv_bias,
-            # only q is decoupled across blocks, k, v, proj are shared
-            # interestingly this has some similarity with how modern llms have more
-            # query heads than keys
             linear_layer=nn.Linear,
-            q_linear_layer=linear_layer,
+            # Nb, previously we had individual expert query weights. But this introduces
+            # a large memory cost, and is a departure from other MoE works. It does have
+            # some similarity to how modern LLMs have more query heads than keys. But it
+            # needs more thought.
+            # q_linear_layer=linear_layer,
             attn_drop=attn_drop,
             proj_drop=proj_drop,
         )
