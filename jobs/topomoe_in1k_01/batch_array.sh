@@ -1,12 +1,12 @@
 #!/bin/bash
 
 #SBATCH --job-name=topomoe_in1k_01
-#SBATCH --partition=GPU-shared,GPU-small
+#SBATCH --partition=GPU-shared
 #SBATCH -N 1
 #SBATCH --ntasks=10
 #SBATCH --gpus=v100-32:2
-#SBATCH --time=01:00:00
-#SBATCH --array=0
+#SBATCH --time=1-00:00:00
+#SBATCH --array=1
 #SBATCH --account=med220004p
 
 export OMP_NUM_THREADS=10
@@ -26,6 +26,7 @@ JOB="topomoe_in1k_01"
 # ls | xargs -I {} basename {} .yaml
 NAMES=(
     01_topomoe_small_3s
+    02_vit_small
 )
 
 NAME="${NAMES[SLURM_ARRAY_TASK_ID]}"
