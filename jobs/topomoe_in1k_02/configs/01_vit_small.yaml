@@ -17,9 +17,9 @@ workers: 10
 epochs: 100
 # this is the batch size per gpu
 # assuming one gpu
-batch_size: 512
+batch_size: 768
 # this is effective lr, i.e. no linear scaling rule
-lr: 6.0e-4
+lr: 8.0e-4
 # 5 warmup epochs
 warmup_fraction: 0.05
 min_lr_fraction: 0.01
