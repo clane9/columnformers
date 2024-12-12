@@ -127,12 +127,9 @@ class ExpertLinear(nn.Module):
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         # input: (batch, experts, slots, in_features)
-        N, E, S, C = input.shape
-        input = rearrange(input, "n e s c -> e (n s) c")
         output = input @ self.weight.transpose(1, 2)
         if self.bias is not None:
             output = output + self.bias[:, None]
-        output = rearrange(output, "e (n s) d -> n e s d", n=N, s=S)
         return output
 
     def extra_repr(self) -> str:
@@ -178,20 +175,18 @@ class TopoMoEMLP(nn.Module):
         # maps: T, E
         maps, _ = self.maps()
         dispatch = maps.t()
-        values, indices = torch.topk(dispatch.detach(), k=K)
-        mask = dispatch.detach() >= values[:, -1:]
-        combine = mask * dispatch
+        values, indices = torch.topk(dispatch, k=K)
+        combine = torch.zeros(T, E * K, dtype=input.dtype, device=input.device)
+        col_indices = torch.arange(E * K, device=input.device)
+        # TODO: this matrix is very sparse. Probably there is a more efficient way
+        # But I don't care right now because this is just attention which we do a lot
+        combine[indices.flatten(), col_indices] = values.flatten()
 
         # N, E, K, C
         input = input[:, indices]
-        input = self.experts(input)
-
-        C = input.size(-1)
-        output = torch.zeros((N, E, T, C), device=input.device, dtype=input.dtype)
-        output.scatter_(
-            dim=2, index=indices.unsqueeze(-1).expand(N, -1, -1, C), src=input
-        )
-        output = (output * combine.unsqueeze(-1)).sum(dim=1)
+        output = self.experts(input)
+        output = rearrange(output, "n e k c -> n (e k) c")
+        output = combine @ output
         return output
 
     def extra_repr(self) -> str:
