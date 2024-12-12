@@ -4,7 +4,7 @@ import pytest
 import torch
 from fvcore.nn import FlopCountAnalysis
 
-from topomoe.models.softmoe import SoftMoETransformer
+from topomoe.models.softmoe import SoftMoEMLP, SoftMoETransformer
 
 CONFIGS = {
     "softmoe_2stage": {
@@ -43,6 +43,20 @@ def test_model(config: str):
     flops = FlopCountAnalysis(model, x)
     logging.info("FLOPs: %.1fM", flops.total() / 1e6)
     logging.info("Params: %.1fM", sum(p.numel() for p in model.parameters()) / 1e6)
+
+
+def test_soft_moe_mlp():
+    mlp = SoftMoEMLP(
+        num_experts=4,
+        in_features=384,
+        hidden_features=768,
+        out_features=384,
+    )
+    logging.info("%s", mlp)
+
+    x = torch.randn(2, 128, 384)
+    z = mlp.forward(x)
+    assert tuple(z.shape) == (2, 128, 384)
 
 
 def _get_shape(v):
