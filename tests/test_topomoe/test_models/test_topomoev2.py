@@ -4,20 +4,21 @@ import pytest
 import torch
 from fvcore.nn import FlopCountAnalysis
 
-from topomoe.models.softmoe import SoftMoEMLP, SoftMoETransformer
+from topomoe.models.topomoev2 import (
+    ExpertLinear,
+    TopoMaps,
+    TopoMoEMLP,
+    TopoMoETransformerV2,
+)
 
 CONFIGS = {
-    "softmoe_2stage": {
+    "topomoev2_2stage_equal": {
         "depths": (3, 3),
-        "slots_per_token": 2,
+        "widths": 8,
         "embed_dim": 384,
+        "num_experts": (1, 4),
         "num_heads": 6,
-    },
-    "softmoe_3stage": {
-        "depths": (2, 2, 2),
-        "slots_per_token": 2,
-        "embed_dim": 384,
-        "num_heads": 6,
+        "wiring_lambd": 0.01,
     },
 }
 
@@ -25,13 +26,12 @@ CONFIGS = {
 @pytest.mark.parametrize(
     "config",
     [
-        "softmoe_2stage",
-        "softmoe_3stage",
+        "topomoev2_2stage_equal",
     ],
 )
 def test_model(config: str):
     torch.manual_seed(42)
-    model = SoftMoETransformer(**CONFIGS[config])
+    model = TopoMoETransformerV2(**CONFIGS[config])
     logging.info("Model:\n%s", model)
 
     x = torch.randn(1, 3, 128, 128)
@@ -45,12 +45,28 @@ def test_model(config: str):
     logging.info("Params: %.1fM", sum(p.numel() for p in model.parameters()) / 1e6)
 
 
-def test_soft_moe_mlp():
-    mlp = SoftMoEMLP(
-        num_experts=4,
+def test_expert_linear():
+    linear = ExpertLinear(4, 384, 768)
+    logging.info("%s", linear)
+
+    # N, E, S, C
+    x = torch.randn(2, 4, 32, 384)
+    z = linear.forward(x)
+    assert tuple(z.shape) == (2, 4, 32, 768)
+
+    z1 = x[:, 1] @ linear.weight[1].t() + linear.bias[1]
+    assert torch.allclose(z[:, 1], z1)
+
+
+def test_topo_moe_mlp():
+    grid_embed = torch.nn.Parameter(0.02 * torch.randn(128, 384))
+    maps = TopoMaps(4, grid_embed)
+    mlp = TopoMoEMLP(
+        maps=maps,
         in_features=384,
         hidden_features=768,
         out_features=384,
+        expert_capacity=2,
     )
     logging.info("%s", mlp)
 

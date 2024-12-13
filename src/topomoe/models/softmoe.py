@@ -6,7 +6,7 @@ References:
 """
 
 from functools import partial
-from typing import List, Literal, Tuple, Union
+from typing import List, Literal, Optional, Tuple, Union
 
 import torch
 import torch.nn.functional as F
@@ -39,14 +39,12 @@ class SoftRouter(nn.Module):
         nn.init.ones_(self.scale)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x: (N, L, C)
-        # logits: (N, S, L)
-        x = F.normalize(x, dim=-1)
-        weight = self.scale * F.normalize(self.weight, dim=-1)
-        logits = weight @ x.transpose(1, 2)
+        key = F.normalize(x, dim=-1)
+        query = self.scale * F.normalize(self.weight, dim=-1)
+        logits = query @ key.transpose(1, 2)
 
         if self.training and self.noise_std > 0:
-            x = x + self.noise_std * torch.randn_like(x)
+            logits = logits + self.noise_std * torch.randn_like(logits)
         return logits
 
     def no_weight_decay(self) -> List[str]:
@@ -57,10 +55,6 @@ class SoftRouter(nn.Module):
 
 
 class ExpertLinear(nn.Module):
-    """
-    Independent linear layer for each expert. Input shape should be (batch, slots, dim).
-    """
-
     def __init__(
         self,
         num_experts: int,
@@ -88,13 +82,10 @@ class ExpertLinear(nn.Module):
             nn.init.zeros_(self.bias)
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
-        N, S, C = input.shape
-        slots_per_expert = S // self.num_experts
-        input = rearrange(
-            input, "n (e s) c -> e (n s) c", e=self.num_experts, s=slots_per_expert
-        )
+        # input: (batch, experts, slots, in_features)
         output = input @ self.weight.transpose(1, 2)
-        output = rearrange(output, "e (n s) c -> n (e s) c", n=N, s=slots_per_expert)
+        if self.bias is not None:
+            output = output + self.bias[:, None]
         return output
 
     def extra_repr(self) -> str:
@@ -102,6 +93,54 @@ class ExpertLinear(nn.Module):
             f"{self.num_experts}, {self.in_features}, {self.out_features}, "
             f"bias={self.bias is not None}"
         )
+
+
+class SoftMoEMLP(nn.Module):
+    def __init__(
+        self,
+        num_experts: int,
+        in_features: int,
+        hidden_features: Optional[int] = None,
+        out_features: Optional[int] = None,
+        slots_per_expert: int = 16,
+        act_layer: Optional[Layer] = nn.GELU,
+        bias: Union[bool, Tuple[bool, bool]] = True,
+        drop: Union[float, Tuple[float, float]] = 0.0,
+    ):
+        super().__init__()
+        self.num_experts = num_experts
+        self.slots_per_expert = slots_per_expert
+
+        self.router = SoftRouter(slots=num_experts * slots_per_expert, dim=in_features)
+        self.experts = Mlp(
+            in_features=in_features,
+            hidden_features=hidden_features,
+            out_features=out_features,
+            linear_layer=partial(ExpertLinear, num_experts),
+            act_layer=act_layer,
+            bias=bias,
+            drop=drop,
+        )
+
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
+        # input: N, T, C
+
+        # logits: N, S, T
+        logits = self.router(input)
+        dispatch = logits.softmax(dim=-1)
+        combine = logits.transpose(1, 2).softmax(dim=-1)
+
+        input = dispatch @ input
+        input = rearrange(
+            input, "n (e s) c -> n e s c", e=self.num_experts, s=self.slots_per_expert
+        )
+        output = self.experts(input)
+        output = rearrange(output, "n e s c -> n (e s) c")
+        output = combine @ output
+        return output
+
+    def extra_repr(self) -> str:
+        return f"slots_per_expert={self.slots_per_expert}"
 
 
 class Block(nn.Module):
@@ -118,6 +157,13 @@ class Block(nn.Module):
         act_layer: Layer = nn.GELU,
     ):
         super().__init__()
+        if num_experts > 1:
+            mlp_layer = partial(
+                SoftMoEMLP, num_experts, slots_per_expert=slots_per_expert
+            )
+        else:
+            mlp_layer = Mlp
+
         self.norm1 = nn.LayerNorm(dim)
         self.attn = Attention(
             dim=dim,
@@ -128,18 +174,9 @@ class Block(nn.Module):
             proj_drop=proj_drop,
         )
         self.norm2 = nn.LayerNorm(dim)
-
-        if num_experts > 1:
-            self.router = SoftRouter(num_experts * slots_per_expert, dim)
-            linear_layer = partial(ExpertLinear, num_experts)
-        else:
-            self.register_module("router", None)
-            linear_layer = nn.Linear
-
-        self.mlp = Mlp(
+        self.mlp = mlp_layer(
             in_features=dim,
             hidden_features=int(dim * mlp_ratio),
-            linear_layer=linear_layer,
             act_layer=act_layer,
             drop=proj_drop,
         )
@@ -147,24 +184,9 @@ class Block(nn.Module):
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, State]:
         attend, attn_state = self.attn(self.norm1(x))
         x = x + attend
+        x = x + self.mlp(self.norm2(x))
 
-        # softmoe mlp path
-        # logits: (N, S, L)
-        if self.router is not None:
-            z = self.norm2(x)
-            logits = self.router(z)
-            dispatch = logits.softmax(dim=-1)
-            combine = logits.transpose(1, 2).softmax(dim=-1)
-
-            z = dispatch @ z
-            z = self.mlp(z)
-            z = combine @ z
-            x = x + z
-        else:
-            x = x + self.mlp(self.norm2(x))
-            dispatch = None
-
-        state = {**attn_state, "features": x, "pool": dispatch}
+        state = {**attn_state, "features": x}
         return x, state
 
 
@@ -238,6 +260,7 @@ class SoftMoETransformer(nn.Module):
         self.global_pool = global_pool
         num_patches = (img_size // patch_size) ** 2
 
+        mlp_ratio = to_list(mlp_ratio, len(depths))
         slots_per_token = to_list(slots_per_token, len(num_experts))
         slots_per_expert = [
             (slots * num_patches) // experts
@@ -251,11 +274,9 @@ class SoftMoETransformer(nn.Module):
             in_chans=in_chans,
             embed_dim=embed_dim,
         )
-        self.pos_embed = nn.Parameter(torch.empty(1, num_patches, embed_dim))
+        self.pos_embed = nn.Parameter(torch.empty(num_patches, embed_dim))
 
         stages = []
-        mlp_ratio = to_list(mlp_ratio, len(depths))
-
         for ii, (depth, experts, slots, ratio) in enumerate(
             zip(depths, num_experts, slots_per_expert, mlp_ratio)
         ):
@@ -324,12 +345,11 @@ def softmoe_tiny_1s_patch16_128(**kwargs):
         "patch_size": 16,
         "in_chans": 3,
         "depths": (6,),
-        "widths": 8,
         "embed_dim": 384,
+        "num_heads": 6,
     }
     defaults = {
         "num_experts": (1,),
-        "num_heads": 6,
     }
     model = model_factory(SoftMoETransformer, params, defaults, **kwargs)
     return model
@@ -342,12 +362,11 @@ def softmoe_tiny_2s_patch16_128(**kwargs):
         "patch_size": 16,
         "in_chans": 3,
         "depths": (3, 3),
-        "widths": 8,
         "embed_dim": 384,
+        "num_heads": 6,
     }
     defaults = {
         "num_experts": (1, 4),
-        "num_heads": 6,
     }
     model = model_factory(SoftMoETransformer, params, defaults, **kwargs)
     return model
@@ -360,12 +379,147 @@ def softmoe_tiny_3s_patch16_128(**kwargs):
         "patch_size": 16,
         "in_chans": 3,
         "depths": (2, 2, 2),
-        "widths": 8,
         "embed_dim": 384,
+        "num_heads": 6,
     }
     defaults = {
         "num_experts": (1, 4, 16),
+    }
+    model = model_factory(SoftMoETransformer, params, defaults, **kwargs)
+    return model
+
+
+@register_model
+def softmoe_small_1s_patch16_224(**kwargs):
+    params = {
+        "img_size": 224,
+        "patch_size": 16,
+        "in_chans": 3,
+        "depths": (12,),
+        "embed_dim": 384,
         "num_heads": 6,
+    }
+    defaults = {
+        "num_experts": (1,),
+    }
+    model = model_factory(SoftMoETransformer, params, defaults, **kwargs)
+    return model
+
+
+@register_model
+def softmoe_small_2s_patch16_224(**kwargs):
+    params = {
+        "img_size": 224,
+        "patch_size": 16,
+        "in_chans": 3,
+        "depths": (6, 6),
+        "embed_dim": 384,
+        "num_heads": 6,
+    }
+    defaults = {
+        "num_experts": (1, 4),
+    }
+    model = model_factory(SoftMoETransformer, params, defaults, **kwargs)
+    return model
+
+
+@register_model
+def softmoe_small_3s_patch16_224(**kwargs):
+    params = {
+        "img_size": 224,
+        "patch_size": 16,
+        "in_chans": 3,
+        "depths": (4, 4, 4),
+        "embed_dim": 384,
+        "num_heads": 6,
+    }
+    defaults = {
+        "num_experts": (1, 4, 16),
+    }
+    model = model_factory(SoftMoETransformer, params, defaults, **kwargs)
+    return model
+
+
+@register_model
+def softmoe_small_4s_patch16_224(**kwargs):
+    params = {
+        "img_size": 224,
+        "patch_size": 16,
+        "in_chans": 3,
+        "depths": (3, 3, 3, 3),
+        "embed_dim": 384,
+        "num_heads": 6,
+    }
+    defaults = {
+        "num_experts": (1, 4, 16, 64),
+    }
+    model = model_factory(SoftMoETransformer, params, defaults, **kwargs)
+    return model
+
+
+@register_model
+def softmoe_base_1s_patch16_224(**kwargs):
+    params = {
+        "img_size": 224,
+        "patch_size": 16,
+        "in_chans": 3,
+        "depths": (12,),
+        "embed_dim": 768,
+        "num_heads": 12,
+    }
+    defaults = {
+        "num_experts": (1,),
+    }
+    model = model_factory(SoftMoETransformer, params, defaults, **kwargs)
+    return model
+
+
+@register_model
+def softmoe_base_2s_patch16_224(**kwargs):
+    params = {
+        "img_size": 224,
+        "patch_size": 16,
+        "in_chans": 3,
+        "depths": (6, 6),
+        "embed_dim": 768,
+        "num_heads": 12,
+    }
+    defaults = {
+        "num_experts": (1, 4),
+    }
+    model = model_factory(SoftMoETransformer, params, defaults, **kwargs)
+    return model
+
+
+@register_model
+def softmoe_base_3s_patch16_224(**kwargs):
+    params = {
+        "img_size": 224,
+        "patch_size": 16,
+        "in_chans": 3,
+        "depths": (4, 4, 4),
+        "embed_dim": 768,
+        "num_heads": 12,
+    }
+    defaults = {
+        "num_experts": (1, 4, 16),
+    }
+    model = model_factory(SoftMoETransformer, params, defaults, **kwargs)
+    return model
+
+
+@register_model
+def softmoe_base_4s_patch16_224(**kwargs):
+    params = {
+        "img_size": 224,
+        "patch_size": 16,
+        "in_chans": 3,
+        "depths": (3, 3, 3, 3),
+        "embed_dim": 768,
+        "num_heads": 12,
+    }
+    defaults = {
+        "num_experts": (1, 4, 16, 64),
     }
     model = model_factory(SoftMoETransformer, params, defaults, **kwargs)
     return model
